@@ -466,6 +466,10 @@ class ONVIFDiscoveryDialog(QDialog):
         self.setModal(True)
         self.resize(700, 500)
         
+        # Ensure dialog uses system/parent palette for theme support
+        if parent:
+            self.setPalette(parent.palette())
+        
         self.discovered_cameras = []
         self.worker = None
         
@@ -474,11 +478,14 @@ class ONVIFDiscoveryDialog(QDialog):
     def setup_ui(self):
         layout = QVBoxLayout(self)
         
+        # Clear any parent stylesheets to use system theme
+        self.setStyleSheet("")
+        
         # Header
         header_label = QLabel("🔍 ONVIF Camera Discovery")
         header_label.setFont(QFont("Arial", 16, QFont.Bold))
         header_label.setAlignment(Qt.AlignCenter)
-        header_label.setStyleSheet("color: #2c6b7d; padding: 10px;")
+        header_label.setStyleSheet("padding: 10px;")
         layout.addWidget(header_label)
         
         # Info label
@@ -487,7 +494,7 @@ class ONVIFDiscoveryDialog(QDialog):
             "Make sure your cameras are powered on and connected to the same network."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("padding: 10px; background: #f0f8ff; border-radius: 5px; margin: 5px;")
+        info_label.setStyleSheet("padding: 10px; border-radius: 5px; margin: 5px;")
         layout.addWidget(info_label)
         
         # Progress area
@@ -514,17 +521,10 @@ class ONVIFDiscoveryDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         
         self.camera_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.camera_table.setAlternatingRowColors(True)
-        self.camera_table.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #d0d0d0;
-                background-color: white;
-            }
-            QTableWidget::item:selected {
-                background-color: #3498db;
-                color: white;
-            }
-        """)
+        # Disable alternating colors to avoid dark theme issues
+        self.camera_table.setAlternatingRowColors(False)
+        # Clear any inherited styles and use application palette
+        self.camera_table.setStyleSheet("")
         layout.addWidget(self.camera_table)
         
         # Buttons
@@ -533,30 +533,20 @@ class ONVIFDiscoveryDialog(QDialog):
         self.scan_button = QPushButton("🔍 Start Scan")
         self.scan_button.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
-                color: white;
                 padding: 10px 20px;
-                border: none;
                 border-radius: 5px;
                 font-weight: bold;
             }
-            QPushButton:hover { background-color: #2980b9; }
-            QPushButton:disabled { background-color: #bdc3c7; }
         """)
         self.scan_button.clicked.connect(self.start_discovery)
         
         self.select_button = QPushButton("✓ Select Camera")
         self.select_button.setStyleSheet("""
             QPushButton {
-                background-color: #27ae60;
-                color: white;
                 padding: 10px 20px;
-                border: none;
                 border-radius: 5px;
                 font-weight: bold;
             }
-            QPushButton:hover { background-color: #229954; }
-            QPushButton:disabled { background-color: #bdc3c7; }
         """)
         self.select_button.clicked.connect(self.select_camera)
         self.select_button.setEnabled(False)
@@ -564,14 +554,10 @@ class ONVIFDiscoveryDialog(QDialog):
         cancel_button = QPushButton("Cancel")
         cancel_button.setStyleSheet("""
             QPushButton {
-                background-color: #95a5a6;
-                color: white;
                 padding: 10px 20px;
-                border: none;
                 border-radius: 5px;
                 font-weight: bold;
             }
-            QPushButton:hover { background-color: #7f8c8d; }
         """)
         cancel_button.clicked.connect(self.reject)
         

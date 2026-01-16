@@ -1455,7 +1455,7 @@ class PasswordDialog(QDialog):
     def setup_ui(self):
         self.setWindowTitle("Administrator Password Required")
         self.setModal(True)
-        self.setFixedSize(400, 200)
+        self.setFixedSize(300, 200)
         
         layout = QVBoxLayout(self)
         
@@ -1463,15 +1463,12 @@ class PasswordDialog(QDialog):
         info_label = QLabel(f"Administrator privileges are required for {self.operation_name}.\n"
                            "Please enter your password to continue:")
         info_label.setWordWrap(True)
+        # Minimal styling, let theme handle colors
         info_label.setStyleSheet("""
             QLabel {
-                color: #2d3748;
-                font-size: 14px;
+                font-size: 13px;
                 margin-bottom: 10px;
                 padding: 10px;
-                background: #f7fafc;
-                border-radius: 6px;
-                border: 1px solid #e2e8f0;
             }
         """)
         layout.addWidget(info_label)
@@ -1483,17 +1480,11 @@ class PasswordDialog(QDialog):
         
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
+        # Minimal styling for better theme compatibility
         self.password_input.setStyleSheet("""
             QLineEdit {
                 padding: 8px;
-                border: 2px solid #cbd5e0;
-                border-radius: 6px;
-                font-size: 14px;
-                background: white;
-            }
-            QLineEdit:focus {
-                border-color: #4299e1;
-                outline: none;
+                font-size: 13px;
             }
         """)
         self.password_input.returnPressed.connect(self.accept)
@@ -1505,10 +1496,10 @@ class PasswordDialog(QDialog):
         # Show password checkbox
         self.show_password_cb = QCheckBox("Show password")
         self.show_password_cb.toggled.connect(self.toggle_password_visibility)
+        # Minimal styling
         self.show_password_cb.setStyleSheet("""
             QCheckBox {
-                font-size: 14px;
-                color: #4a5568;
+                font-size: 13px;
                 margin: 5px 0;
             }
         """)
@@ -1521,30 +1512,7 @@ class PasswordDialog(QDialog):
         )
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        button_box.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: bold;
-                min-width: 80px;
-            }
-            QPushButton[text="OK"] {
-                background: #3182ce;
-                color: white;
-                border: none;
-            }
-            QPushButton[text="OK"]:hover {
-                background: #2c5aa0;
-            }
-            QPushButton[text="Cancel"] {
-                background: #e2e8f0;
-                color: #4a5568;
-                border: 1px solid #cbd5e0;
-            }
-            QPushButton[text="Cancel"]:hover {
-                background: #cbd5e0;
-            }
-        """)
+        # Keep default button styling for theme compatibility
         layout.addWidget(button_box)
         
         # Focus on password input

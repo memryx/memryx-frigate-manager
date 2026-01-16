@@ -1474,7 +1474,17 @@ class ConfigGUI(QWidget):
             detect_layout.addRow("", detect_enabled_field)
             form.addRow(detect_group)
             
-            form.addRow("Objects to Track:", objects_field)
+            # Create objects row with help link
+            objects_row = QHBoxLayout()
+            objects_row.addWidget(objects_field)
+            help_link = QLabel('&nbsp;<a href="#" style="color: #2c6b7d; text-decoration: none;">📋 View COCO Classes</a>')
+            help_link.setTextFormat(Qt.RichText)
+            help_link.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+            help_link.linkActivated.connect(lambda: CocoClassesDialog(self).exec())
+            objects_row.addWidget(help_link)
+            objects_container = QWidget()
+            objects_container.setLayout(objects_row)
+            form.addRow("Objects to Track:", objects_container)
             
             # Snapshots
             snapshots_group = QGroupBox("Snapshots")
