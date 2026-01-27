@@ -1312,104 +1312,25 @@ class PrerequisitesWidget(QWidget):
         self.start_docker_btn.setText("🔄 Starting...")
         self.log_output.append("🚀 Starting Docker daemon...")
         
-        try:
-            import time
-            
-            # First, stop Docker if it's running in a bad state
-            self.log_output.append("🔄 Stopping Docker service...")
-            process0 = subprocess.Popen(
-                ['sudo', '-S', 'systemctl', 'stop', 'docker'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            process0.communicate(input=f"{sudo_password}\n", timeout=10)
-            time.sleep(1)
-            
-            # Also stop docker.socket
-            process0b = subprocess.Popen(
-                ['sudo', '-S', 'systemctl', 'stop', 'docker.socket'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            process0b.communicate(input=f"{sudo_password}\n", timeout=10)
-            time.sleep(1)
-            
-            # Clean up Docker's runtime directory if it exists with issues
-            self.log_output.append("🧹 Cleaning Docker runtime data...")
-            cleanup_dirs = [
-                '/var/run/docker.sock',
-                '/var/run/docker',
-            ]
-            
-            for dir_path in cleanup_dirs:
-                cleanup_process = subprocess.Popen(
-                    ['sudo', '-S', 'rm', '-rf', dir_path],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                cleanup_process.communicate(input=f"{sudo_password}\n", timeout=5)
-            
-            time.sleep(1)
-            
-            # Start Docker service
-            self.log_output.append("▶️ Starting Docker service...")
-            process = subprocess.Popen(
-                ['sudo', '-S', 'systemctl', 'start', 'docker'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            stdout, stderr = process.communicate(input=f"{sudo_password}\n", timeout=15)
-            
-            if process.returncode == 0:
-                self.log_output.append("✅ Docker daemon started successfully!")
-                
-                # Enable Docker to start on boot
-                process2 = subprocess.Popen(
-                    ['sudo', '-S', 'systemctl', 'enable', 'docker'],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                process2.communicate(input=f"{sudo_password}\n", timeout=10)
-                
-                if process2.returncode == 0:
-                    self.log_output.append("✅ Docker enabled to start on boot")
-                
-                # Wait for daemon to fully initialize
-                self.log_output.append("⏳ Waiting for Docker daemon to initialize...")
-                time.sleep(3)
-                
-                # Verify Docker is actually working
-                verify_result = subprocess.run(['docker', 'info'], capture_output=True, text=True, timeout=5)
-                if verify_result.returncode == 0:
-                    self.log_output.append("✅ Docker daemon is running and responding!")
-                else:
-                    self.log_output.append("⚠️ Docker started but may need a moment to fully initialize")
-                
-                # Recheck status
-                self.check_all_status()
-            else:
-                error_msg = stderr.strip() if stderr else "Unknown error"
-                self.log_output.append(f"❌ Failed to start Docker daemon: {error_msg}")
-                self.log_output.append("💡 Try restarting your computer to fix Docker issues")
-                
-        except subprocess.TimeoutExpired:
-            self.log_output.append("❌ Starting Docker daemon timed out")
-            self.log_output.append("💡 Docker may be unresponsive. Try: sudo systemctl restart docker")
-        except Exception as e:
-            self.log_output.append(f"❌ Error starting Docker daemon: {str(e)}")
-        finally:
-            self.start_docker_btn.setEnabled(True)
-            self.start_docker_btn.setText("▶️ Start Docker Daemon")
+        # Create and start worker thread
+        self.docker_daemon_worker = DockerDaemonStartWorker(sudo_password)
+        self.docker_daemon_worker.progress.connect(self.log_output.append)
+        self.docker_daemon_worker.finished.connect(self.on_docker_daemon_started)
+        self.docker_daemon_worker.start()
+    
+    def on_docker_daemon_started(self, success):
+        """Handle Docker daemon start completion"""
+        self.start_docker_btn.setEnabled(True)
+        self.start_docker_btn.setText("▶️ Start Docker Daemon")
+        
+        if success:
+            # Recheck status to update UI
+            self.check_all_status()
+        
+        # Clean up worker
+        if hasattr(self, 'docker_daemon_worker'):
+            self.docker_daemon_worker.deleteLater()
+            self.docker_daemon_worker = None
         
 
 class ModalOverlay(QWidget):
@@ -2245,6 +2166,114 @@ class DockerWorker(QThread):
         # Remove container
         self._run_docker_command(['docker', 'rm', 'frigate'], "Removing container:", capture_output=False)
         self.progress.emit("✅ Frigate container removed successfully!")
+
+class DockerDaemonStartWorker(QThread):
+    """Background worker for starting Docker daemon"""
+    progress = Signal(str)
+    finished = Signal(bool)
+    
+    def __init__(self, sudo_password=None):
+        super().__init__()
+        self.sudo_password = sudo_password
+    
+    def run(self):
+        try:
+            import time
+            
+            # First, stop Docker if it's running in a bad state
+            self.progress.emit("🔄 Stopping Docker service...")
+            process0 = subprocess.Popen(
+                ['sudo', '-S', 'systemctl', 'stop', 'docker'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            process0.communicate(input=f"{self.sudo_password}\n", timeout=10)
+            time.sleep(1)
+            
+            # Also stop docker.socket
+            process0b = subprocess.Popen(
+                ['sudo', '-S', 'systemctl', 'stop', 'docker.socket'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            process0b.communicate(input=f"{self.sudo_password}\n", timeout=10)
+            time.sleep(1)
+            
+            # Clean up Docker's runtime directory if it exists with issues
+            self.progress.emit("🧹 Cleaning Docker runtime data...")
+            cleanup_dirs = [
+                '/var/run/docker.sock',
+                '/var/run/docker',
+            ]
+            
+            for dir_path in cleanup_dirs:
+                cleanup_process = subprocess.Popen(
+                    ['sudo', '-S', 'rm', '-rf', dir_path],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                cleanup_process.communicate(input=f"{self.sudo_password}\n", timeout=5)
+            
+            time.sleep(1)
+            
+            # Start Docker service
+            self.progress.emit("▶️ Starting Docker service...")
+            process = subprocess.Popen(
+                ['sudo', '-S', 'systemctl', 'start', 'docker'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            stdout, stderr = process.communicate(input=f"{self.sudo_password}\n", timeout=15)
+            
+            if process.returncode == 0:
+                self.progress.emit("✅ Docker daemon started successfully!")
+                
+                # Enable Docker to start on boot
+                process2 = subprocess.Popen(
+                    ['sudo', '-S', 'systemctl', 'enable', 'docker'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                process2.communicate(input=f"{self.sudo_password}\n", timeout=10)
+                
+                if process2.returncode == 0:
+                    self.progress.emit("✅ Docker enabled to start on boot")
+                
+                # Wait for daemon to fully initialize
+                self.progress.emit("⏳ Waiting for Docker daemon to initialize...")
+                time.sleep(3)
+                
+                # Verify Docker is actually working
+                verify_result = subprocess.run(['docker', 'info'], capture_output=True, text=True, timeout=5)
+                if verify_result.returncode == 0:
+                    self.progress.emit("✅ Docker daemon is running and responding!")
+                else:
+                    self.progress.emit("⚠️ Docker started but may need a moment to fully initialize")
+                
+                self.finished.emit(True)
+            else:
+                error_msg = stderr.strip() if stderr else "Unknown error"
+                self.progress.emit(f"❌ Failed to start Docker daemon: {error_msg}")
+                self.progress.emit("💡 Try restarting your computer to fix Docker issues")
+                self.finished.emit(False)
+                
+        except subprocess.TimeoutExpired:
+            self.progress.emit("❌ Starting Docker daemon timed out")
+            self.progress.emit("💡 Docker may be unresponsive. Try: sudo systemctl restart docker")
+            self.finished.emit(False)
+        except Exception as e:
+            self.progress.emit(f"❌ Error starting Docker daemon: {str(e)}")
+            self.finished.emit(False)
 
 class DockerInstallWorker(QThread):
     """Background worker for Docker installation"""
