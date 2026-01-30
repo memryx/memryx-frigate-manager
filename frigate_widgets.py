@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QGroupBox, QMessageBox, QProgressBar, QGridLayout,
     QSpacerItem, QSizePolicy, QApplication, QFrame, QDialog
 )
-from PySide6.QtCore import Signal, QTimer, Qt, QUrl
+from PySide6.QtCore import Signal, QTimer, Qt, QUrl, QThread
 from PySide6.QtGui import QFont, QDesktopServices
 
 # Import from main file
@@ -43,6 +43,54 @@ except ImportError:
     STATUS_IN_PROGRESS = "in_progress"
     STATUS_COMPLETED = "completed"
     STATUS_WARNING = "warning"
+
+# ============================================================================
+# WORKER CLASSES
+# ============================================================================
+class GitCloneWorker(QThread):
+    """Background worker for git clone operations"""
+    progress = Signal(str)
+    finished = Signal(bool)
+    
+    def __init__(self, repo_url, target_dir, remove_existing=False):
+        super().__init__()
+        self.repo_url = repo_url
+        self.target_dir = target_dir
+        self.remove_existing = remove_existing
+    
+    def run(self):
+        import shutil
+        try:
+            # Remove existing directory if requested
+            if self.remove_existing and os.path.exists(self.target_dir):
+                self.progress.emit("🗑️ Removing existing Frigate directory...")
+                shutil.rmtree(self.target_dir)
+                self.progress.emit("✅ Existing directory removed")
+            
+            # Clone repository
+            self.progress.emit(f"🔄 Cloning {self.repo_url}...")
+            self.progress.emit("⏳ This may take 1-3 minutes depending on your connection...")
+            
+            result = subprocess.run(
+                ['git', 'clone', self.repo_url, self.target_dir],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                self.progress.emit("✅ Repository cloned successfully!")
+                self.finished.emit(True)
+            else:
+                self.progress.emit(f"❌ Clone failed: {result.stderr}")
+                self.finished.emit(False)
+                
+        except subprocess.TimeoutExpired:
+            self.progress.emit("❌ Clone timed out after 5 minutes")
+            self.finished.emit(False)
+        except Exception as e:
+            self.progress.emit(f"❌ Error: {str(e)}")
+            self.finished.emit(False)
 
 # ============================================================================
 # FRIGATE INSTALL WIDGET (Section 2)
@@ -410,39 +458,6 @@ class FrigateInstallWidget(QWidget):
             # Emit not started status since repository is not found
             self.status_changed.emit(STATUS_NOT_STARTED)
             
-    # Build status check moved to Launch & Monitor tab
-    # def check_build_status(self):
-    #     """Check if Docker image is built"""
-    #     try:
-    #         result = subprocess.run(
-    #             ['docker', 'images', '-q', 'frigate:memryx-latest'],
-    #             capture_output=True,
-    #             text=True,
-    #             timeout=5
-    #         )
-    #         
-    #         if result.stdout.strip():
-    #             self.log_output.append("✅ Docker image 'frigate:memryx-latest' found")
-    #             self.status_changed.emit(STATUS_COMPLETED)
-    #         else:
-    #             self.log_output.append("⚠ Docker image not built yet - go to Launch & Monitor tab to build")
-    #             
-    #     except Exception as e:
-    #         self.log_output.append(f"⚠ Error checking Docker image: {str(e)}")
-    
-    # Build methods moved to Launch & Monitor tab in main launcher
-    # def build_image(self):
-    #     """Build the Docker image"""
-    #     self.log_output.append("🔨 Build functionality moved to Launch & Monitor tab")
-    
-    # def rebuild_image(self):
-    #     """Rebuild the Docker image"""
-    #     self.log_output.append("🔨 Rebuild functionality moved to Launch & Monitor tab")
-    
-    # def view_build_logs(self):
-    #     """View build logs"""
-    #     self.log_output.append("📋 Build logs available in Launch & Monitor tab")
-            
     def clone_fresh_repository(self):
         """Clone a fresh Frigate repository with config and version.py"""
         # Ask for confirmation if repo already exists
@@ -464,48 +479,37 @@ class FrigateInstallWidget(QWidget):
             if reply == QMessageBox.No:
                 self.log_output.append("❌ Fresh clone cancelled by user")
                 return
-                
-            # Remove existing directory
-            self.log_output.append("🗑️ Removing existing Frigate directory...")
-            try:
-                import shutil
-                shutil.rmtree(self.frigate_dir)
-                self.log_output.append("✅ Existing directory removed")
-            except Exception as e:
-                self.log_output.append(f"❌ Error removing directory: {str(e)}")
-                return
         
         self.log_output.append("📥 Starting fresh repository clone...")
         self.clone_repo_btn.setEnabled(False)
+        self.update_repo_btn.setEnabled(False)
+        self.check_repo_btn.setEnabled(False)
         self.clone_repo_btn.setText("🔄 Cloning...")
         
-        # Run git clone
-        try:
-            self.log_output.append(f"🔄 Cloning blakeblackshear/frigate to {self.frigate_dir}...")
-            result = subprocess.run(
-                ['git', 'clone', 'https://github.com/blakeblackshear/frigate.git', self.frigate_dir],
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            
-            if result.returncode == 0:
-                self.log_output.append("✅ Repository cloned successfully!")
-                
-                # Create config directory and version.py
-                self.create_config_and_version()
-                
-                self.check_repo_status()
-            else:
-                self.log_output.append(f"❌ Clone failed: {result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            self.log_output.append("❌ Clone timed out after 5 minutes")
-        except Exception as e:
-            self.log_output.append(f"❌ Error: {str(e)}")
-        finally:
-            self.clone_repo_btn.setEnabled(True)
-            self.clone_repo_btn.setText("📥 Fresh Clone")
+        # Create and start worker thread
+        self.clone_worker = GitCloneWorker(
+            'https://github.com/blakeblackshear/frigate.git',
+            self.frigate_dir,
+            remove_existing=os.path.exists(self.frigate_dir)
+        )
+        self.clone_worker.progress.connect(self.log_output.append)
+        self.clone_worker.finished.connect(self.on_clone_finished)
+        self.clone_worker.start()
+    
+    def on_clone_finished(self, success):
+        """Handle clone completion"""
+        # Re-enable buttons
+        self.clone_repo_btn.setEnabled(True)
+        self.update_repo_btn.setEnabled(True)
+        self.check_repo_btn.setEnabled(True)
+        self.clone_repo_btn.setText("📥 Fresh Clone")
+        
+        if success:
+            # Create config directory and version.py
+            self.create_config_and_version()
+            self.check_repo_status()
+        
+        self.clone_worker = None
     
     def create_config_and_version(self):
         """Create config directory, version.py, and default config.yaml"""
@@ -622,6 +626,8 @@ version: 0.17-0
         """Update the Frigate repository"""
         self.log_output.append("🔄 Updating repository...")
         self.update_repo_btn.setEnabled(False)
+        self.clone_repo_btn.setEnabled(False)
+        self.check_repo_btn.setEnabled(False)
         self.update_repo_btn.setText("🔄 Updating...")
         
         try:
@@ -675,6 +681,10 @@ version: 0.17-0
             
             if fetch_result.returncode != 0:
                 self.log_output.append(f"❌ Fetch failed: {fetch_result.stderr}")
+                self.update_repo_btn.setEnabled(True)
+                self.clone_repo_btn.setEnabled(True)
+                self.check_repo_btn.setEnabled(True)
+                self.update_repo_btn.setText("🔄 Update/Pull")
                 return
             
             # Check if there are updates available
@@ -691,6 +701,10 @@ version: 0.17-0
             if commits_behind == "0":
                 self.log_output.append("✅ Repository is already up to date!")
                 self.log_output.append("ℹ️ You have the latest version")
+                self.update_repo_btn.setEnabled(True)
+                self.clone_repo_btn.setEnabled(True)
+                self.check_repo_btn.setEnabled(True)
+                self.update_repo_btn.setText("🔄 Update/Pull")
                 return
             else:
                 self.log_output.append(f"📥 {commits_behind} new commit(s) available")
@@ -743,6 +757,8 @@ version: 0.17-0
             self.log_output.append(f"❌ Error: {str(e)}")
         finally:
             self.update_repo_btn.setEnabled(True)
+            self.clone_repo_btn.setEnabled(True)
+            self.check_repo_btn.setEnabled(True)
             self.update_repo_btn.setText("🔄 Update/Pull")
             # Refresh status
             QTimer.singleShot(100, self.check_repo_status)
@@ -1674,7 +1690,7 @@ class LaunchMonitorWidget(QWidget):
         build_note_container.setContentsMargins(0, 0, 0, 0)
         
         build_note = QLabel(
-            "💡 <b>Important:</b> Build the Docker image before starting Frigate. "
+            "💡 <b>Step 1:</b> Build the Docker image before starting Frigate. "
             "<b>Rebuild required</b> if you modified any Frigate files."
         )
         build_note.setWordWrap(False)
@@ -1786,6 +1802,31 @@ class LaunchMonitorWidget(QWidget):
             }}
         """)
         control_section_layout.addWidget(control_header)
+        
+        # Workflow guidance note - content-width
+        workflow_note_container = QHBoxLayout()
+        workflow_note_container.setContentsMargins(0, 0, 0, 0)
+        
+        workflow_note = QLabel(
+            "📝 <b>Step 2:</b> After building, click <b>'▶ Start'</b> to launch Frigate. "
+            "Then scroll down to view live logs below."
+        )
+        workflow_note.setWordWrap(False)
+        workflow_note.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        workflow_note.setStyleSheet(f"""
+            QLabel {{
+                color: #047857;
+                font-size: 16px;
+                padding: 12px 16px;
+                background: #d1fae5;
+                border-left: 3px solid #34d399;
+                border-radius: 8px;
+                line-height: 1.5;
+            }}
+        """)
+        workflow_note_container.addWidget(workflow_note)
+        workflow_note_container.addStretch()
+        control_section_layout.addLayout(workflow_note_container)
         
         # Important note - content-width
         control_note_container = QHBoxLayout()
@@ -1942,7 +1983,7 @@ class LaunchMonitorWidget(QWidget):
         logs_section_layout.setSpacing(12)
         
         # Logs header
-        logs_header = QLabel("📋 Docker image 'frigate:latest' found")
+        logs_header = QLabel("📋 Live Logs")
         logs_header.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_PRIMARY};
@@ -1951,6 +1992,31 @@ class LaunchMonitorWidget(QWidget):
             }}
         """)
         logs_section_layout.addWidget(logs_header)
+        
+        # Logs guidance note - content-width
+        logs_note_container = QHBoxLayout()
+        logs_note_container.setContentsMargins(0, 0, 0, 0)
+        
+        logs_note = QLabel(
+            "📺 <b>Step 3:</b> View real-time logs here after starting Frigate. "
+            "Watch for startup messages and any errors."
+        )
+        logs_note.setWordWrap(False)
+        logs_note.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        logs_note.setStyleSheet(f"""
+            QLabel {{
+                color: #7c3aed;
+                font-size: 16px;
+                padding: 12px 16px;
+                background: #f3e8ff;
+                border-left: 3px solid #a78bfa;
+                border-radius: 8px;
+                line-height: 1.5;
+            }}
+        """)
+        logs_note_container.addWidget(logs_note)
+        logs_note_container.addStretch()
+        logs_section_layout.addLayout(logs_note_container)
         
         # Build logs with better styling
         self.logs_output = QTextEdit()

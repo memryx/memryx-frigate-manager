@@ -1394,6 +1394,157 @@ class ConfigGUI(QWidget):
             camera_url_field = QLineEdit(camera_url)
             camera_url_field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             camera_url_field.setPlaceholderText("rtsp://username:password@ip:port/cam/realmonitor?channel=1&subtype=0")
+            camera_url_field.setEnabled(False)  # Disabled by default for auto-generation
+            
+            # Discover Camera button (for existing cameras too)
+            discover_btn = QPushButton("🔍 Discover Camera")
+            discover_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            discover_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2196f3;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #1976d2;
+                }
+                QPushButton:pressed {
+                    background-color: #0d47a1;
+                }
+            """)
+            
+            # IP Address layout with Discover button
+            ip_layout = QHBoxLayout()
+            ip_layout.addWidget(ip_address_field)
+            ip_layout.addWidget(discover_btn)
+            ip_layout.setSpacing(10)
+            ip_widget = QWidget()
+            ip_widget.setLayout(ip_layout)
+            
+            # Manual URL toggle
+            manual_url_btn = QPushButton("✏️ Manual URL")
+            manual_url_btn.setCheckable(True)
+            manual_url_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            manual_url_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ff9800;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #f57c00;
+                }
+                QPushButton:checked {
+                    background-color: #e65100;
+                }
+            """)
+            
+            # Camera URL layout with manual URL button
+            camera_url_layout = QHBoxLayout()
+            camera_url_layout.addWidget(camera_url_field)
+            camera_url_layout.addWidget(manual_url_btn)
+            camera_url_layout.setSpacing(10)
+            camera_url_widget = QWidget()
+            camera_url_widget.setLayout(camera_url_layout)
+            
+            # Manufacturer selection
+            manufacturer_frame = QFrame()
+            manufacturer_frame.setStyleSheet("""
+                QFrame {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-top: 5px;
+                }
+            """)
+            manufacturer_layout = QVBoxLayout(manufacturer_frame)
+            manufacturer_label = QLabel("Select your camera manufacturer for automatic URL configuration:")
+            manufacturer_label.setStyleSheet("font-weight: bold; color: #495057; font-size: 14px;")
+            manufacturer_combo = QComboBox()
+            manufacturer_combo.addItems([
+                "Select manufacturer...",
+                "Amcrest", "Dahua", "Foscam", "Hikvision", "Reolink",
+                "Sony", "Uniview", "-- None of the above --"
+            ])
+            manufacturer_combo.setMinimumWidth(400)
+            manufacturer_combo.setMinimumHeight(35)
+            manufacturer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            manufacturer_layout.addWidget(manufacturer_label)
+            manufacturer_layout.addWidget(manufacturer_combo)
+            
+            # Manual URL section
+            manual_url_section = QFrame()
+            manual_url_section.setStyleSheet("""
+                QFrame {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-top: 5px;
+                }
+            """)
+            manual_url_layout = QVBoxLayout(manual_url_section)
+            manual_url_header = QLabel("✏️ Enter Custom Camera URL:")
+            manual_url_header.setStyleSheet("font-weight: bold; color: #495057; font-size: 14px;")
+            manual_url_layout.addWidget(manual_url_header)
+            
+            custom_url_field = QLineEdit()
+            custom_url_field.setPlaceholderText("rtsp://username:password@ip:554/your/camera/path")
+            custom_url_field.setStyleSheet("""
+                QLineEdit {
+                    padding: 6px 10px;
+                    border: 1px solid #ced4da;
+                    border-radius: 4px;
+                    font-family: monospace;
+                }
+            """)
+            manual_url_layout.addWidget(custom_url_field)
+            manual_url_section.hide()  # Hidden by default
+            manufacturer_layout.addWidget(manual_url_section)
+            
+            # Store references for easy access
+            camera_url_field.manufacturer_selection_frame = manufacturer_frame
+            camera_url_field.manufacturer_combo = manufacturer_combo
+            camera_url_field.manual_url_section = manual_url_section
+            camera_url_field.custom_url_field = custom_url_field
+            camera_url_field.manual_url_header = manual_url_header
+            
+            # Connect discover button
+            discover_btn.clicked.connect(lambda: self.discover_camera(ip_address_field, username_field, password_field, camera_url_field))
+            
+            # Connect manual URL toggle
+            manual_url_btn.toggled.connect(lambda checked: self.toggle_manual_url(camera_url_field, checked))
+            
+            # Connect manufacturer selection
+            def on_manufacturer_changed(text):
+                try:
+                    self.on_manufacturer_selected(text, ip_address_field, username_field, password_field, camera_url_field, manufacturer_frame)
+                except Exception as e:
+                    print(f"Error in manufacturer selection: {e}")
+            
+            manufacturer_combo.currentTextChanged.connect(on_manufacturer_changed)
+            
+            # Connect custom URL field changes
+            def on_custom_url_changed():
+                try:
+                    if hasattr(camera_url_field, 'custom_url_field'):
+                        custom_text = camera_url_field.custom_url_field.text().strip()
+                        if custom_text:
+                            camera_url_field.setText(custom_text)
+                            camera_url_field.setEnabled(True)
+                except Exception as e:
+                    print(f"Error in custom URL change: {e}")
+            
+            custom_url_field.textChanged.connect(on_custom_url_changed)
             
             # Camera roles
             role_detect_field = QCheckBox("Detect")
@@ -1453,10 +1604,28 @@ class ConfigGUI(QWidget):
             
             # Layout form with responsive design
             form.addRow("Camera Name:", camera_name_field)
-            form.addRow("IP Address:", ip_address_field)
+            form.addRow("IP Address:", ip_widget)  # IP address with discover button
             form.addRow("Username:", username_field)
             form.addRow("Password:", password_field)
-            form.addRow("Camera URL:", camera_url_field)
+            form.addRow("Manufacturer:", manufacturer_frame)  # Manufacturer selection
+            form.addRow("Camera URL:", camera_url_widget)  # Camera URL with manual URL button
+            
+            # RTSP info note
+            rtsp_note = QLabel(
+                "ℹ️ Use 'Discover Camera' for automatic setup, or toggle 'Manual URL' for custom RTSP URLs"
+            )
+            rtsp_note.setWordWrap(True)
+            rtsp_note.setStyleSheet("""
+                QLabel {
+                    color: #2c6b7d;
+                    font-size: 12px;
+                    padding: 5px;
+                    background: #f5f5f5;
+                    border-radius: 5px;
+                    margin: 2px 0;
+                }
+            """)
+            form.addRow("", rtsp_note)  # Empty label for the note row
             
             # Roles layout
             roles_layout = QHBoxLayout()

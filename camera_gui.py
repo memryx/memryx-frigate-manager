@@ -497,6 +497,24 @@ class ONVIFDiscoveryDialog(QDialog):
         info_label.setStyleSheet("padding: 10px; border-radius: 5px; margin: 5px;")
         layout.addWidget(info_label)
         
+        # Firewall warning note
+        firewall_note = QLabel(
+            "💡 <b>Note:</b> If cameras are not found during scanning, it may be a firewall issue.\n"
+            "Check firewall status with: <code>sudo ufw status</code>\n"
+            "To temporarily disable firewall: <code>sudo ufw disable</code>"
+        )
+        firewall_note.setWordWrap(True)
+        firewall_note.setTextFormat(Qt.RichText)
+        firewall_note.setStyleSheet(
+            "padding: 10px; "
+            "background-color: #fff3cd; "
+            "color: #856404; "
+            "border: 1px solid #ffeaa7; "
+            "border-radius: 5px; "
+            "margin: 5px;"
+        )
+        layout.addWidget(firewall_note)
+        
         # Progress area
         self.progress_label = QLabel("Ready to scan...")
         self.progress_label.setStyleSheet("font-weight: bold; padding: 5px;")

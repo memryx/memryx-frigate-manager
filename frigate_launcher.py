@@ -852,6 +852,10 @@ class PrerequisitesWidget(QWidget):
         
     def check_memryx_status(self):
         """Check MemryX installation status"""
+        # Disable only this button to prevent double-clicks
+        self.check_memryx_btn.setEnabled(False)
+        QApplication.processEvents()  # Force UI update
+        
         self.log_output.append("🔍 Checking MemryX SDK installation...")
         try:
             # Check for MemryX devices
@@ -987,6 +991,11 @@ class PrerequisitesWidget(QWidget):
                 if needs_update:
                     log_msg += " ⚠️ Version 2.1 required for Frigate compatibility"
                 self.log_output.append(log_msg)
+                
+                # Re-enable button
+                self.check_memryx_btn.setEnabled(True)
+                QApplication.processEvents()  # Force UI update
+                
                 return True  # MemryX is installed
             else:
                 self.memryx_status_label.setText("Status: ❌ Not Installed (no devices found)")
@@ -1003,15 +1012,29 @@ class PrerequisitesWidget(QWidget):
                 self.install_memryx_btn.setVisible(True)
                 self.update_memryx_btn.setVisible(False)
                 self.log_output.append("❌ MemryX SDK not detected - installation required")
+                
+                # Re-enable button
+                self.check_memryx_btn.setEnabled(True)
+                QApplication.processEvents()  # Force UI update
+                
                 return False  # MemryX is not installed
                 
         except Exception as e:
             self.memryx_status_label.setText(f"Status: ❓ Check Failed: {str(e)}")
             self.log_output.append(f"⚠ Error checking MemryX status: {str(e)}")
+            
+            # Re-enable button
+            self.check_memryx_btn.setEnabled(True)
+            QApplication.processEvents()  # Force UI update
+            
             return False  # Error counts as not installed
             
     def check_docker_status(self):
         """Check Docker installation status"""
+        # Disable only this button to prevent double-clicks
+        self.check_docker_btn.setEnabled(False)
+        QApplication.processEvents()  # Force UI update
+        
         self.log_output.append("🔍 Checking Docker installation...")
         docker_installed = False
         compose_installed = False
@@ -1026,8 +1049,8 @@ class PrerequisitesWidget(QWidget):
                 
                 # Check if Docker daemon is running
                 try:
-                    daemon_check = subprocess.run(['docker', 'info'], capture_output=True, text=True, timeout=5)
-                    if daemon_check.returncode == 0:
+                    daemon_check = subprocess.run(['systemctl', 'is-active','docker'], capture_output=True, text=True, timeout=5)
+                    if daemon_check.returncode == 0 and daemon_check.stdout.strip() == 'active':
                         docker_running = True
                         self.docker_status_label.setText(f"Status: ✅ {version}")
                         self.docker_status_label.setStyleSheet(f"""
@@ -1127,6 +1150,10 @@ class PrerequisitesWidget(QWidget):
             """)
             self.log_output.append("❌ Docker Compose not installed")
         
+        # Re-enable button
+        self.check_docker_btn.setEnabled(True)
+        QApplication.processEvents()  # Force UI update
+        
         # Return True only if Docker is installed, daemon is running, AND Compose is installed
         return docker_installed and docker_running and compose_installed
             
@@ -1165,16 +1192,49 @@ class PrerequisitesWidget(QWidget):
         
     def on_memryx_install_finished(self, success):
         """Handle MemryX installation completion"""
+        # Re-enable all operation buttons
+        self.check_memryx_btn.setEnabled(True)
         self.install_memryx_btn.setEnabled(True)
+        self.check_docker_btn.setEnabled(True)
+        self.install_docker_btn.setEnabled(True)
         self.install_memryx_btn.setText("📦 Install MemryX SDK")
         
         if success:
             self.log_output.append("🎉 MemryX installation completed!")
-            QMessageBox.information(
-                self, "Installation Complete",
-                "✅ MemryX SDK has been installed successfully!\n\n"
-                "IMPORTANT: Please restart your computer for the drivers to take effect."
-            )
+            
+            # Check if devices are detected
+            devices = [d for d in glob.glob("/dev/memx*") if "_feature" not in d]
+            
+            # Always prompt for restart after fresh driver installation
+            if len(devices) == 0:
+                # No devices detected - restart definitely needed
+                reply = QMessageBox.question(
+                    self, "Restart Required",
+                    "✅ MemryX SDK has been installed successfully!\n\n"
+                    "⚠️ RESTART REQUIRED\n"
+                    "Driver installation requires a system restart to take effect.\n"
+                    "No MemryX devices detected yet.\n\n"
+                    "Would you like to restart your system now?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+            else:
+                # Devices detected (unlikely after fresh install before reboot)
+                reply = QMessageBox.question(
+                    self, "Restart Required",
+                    "✅ MemryX SDK has been installed successfully!\n\n"
+                    "⚠️ RESTART REQUIRED\n"
+                    f"Currently detected: {len(devices)} MemryX device(s)\n\n"
+                    "Driver installation requires a system restart for proper operation.\n\n"
+                    "Would you like to restart your system now?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+            
+            if reply == QMessageBox.Yes:
+                # Access restart_system from parent (main window)
+                parent = self.window()
+                if hasattr(parent, 'restart_system'):
+                    parent.restart_system()
+            
             self.check_memryx_status()
         else:
             self.log_output.append("❌ Installation failed. Check the log for details.")
@@ -1205,8 +1265,13 @@ class PrerequisitesWidget(QWidget):
             self.log_output.append("❌ MemryX SDK update cancelled - password required")
             return
         
+        # Disable all buttons during update operation
         self.update_memryx_btn.setEnabled(False)
         self.update_memryx_btn.setText("🔄 Updating to 2.1...")
+        self.install_memryx_btn.setEnabled(False)
+        self.check_memryx_btn.setEnabled(False)
+        self.check_docker_btn.setEnabled(False)
+        self.install_docker_btn.setEnabled(False)
         
         # Start the MemryX update worker
         self.memryx_update_worker = MemryXUpdateWorker(self.script_dir, sudo_password)
@@ -1216,31 +1281,64 @@ class PrerequisitesWidget(QWidget):
     
     def on_memryx_update_finished(self, success):
         """Handle MemryX SDK update completion"""
+        # Re-enable all buttons after update
         self.update_memryx_btn.setEnabled(True)
         self.update_memryx_btn.setText("🔄 Update MemryX SDK")
+        self.install_memryx_btn.setEnabled(True)
+        self.check_memryx_btn.setEnabled(True)
+        self.check_docker_btn.setEnabled(True)
+        self.install_docker_btn.setEnabled(True)
         
         if success:
             self.log_output.append("🎉 MemryX SDK updated to version 2.1!")
             
-            # Check if restart is needed
+            # Check if drivers were modified (requiring restart)
+            restart_needed = False
+            if hasattr(self.memryx_update_worker, 'restart_needed'):
+                restart_needed = self.memryx_update_worker.restart_needed
+            
+            # Check current device status
             devices = [d for d in glob.glob("/dev/memx*") if "_feature" not in d]
-            if len(devices) == 0:
-                reply = QMessageBox.question(
-                    self, "Restart Required",
-                    "✅ MemryX SDK 2.1 has been installed successfully!\n\n"
-                    "⚠️ No MemryX devices detected yet.\n"
-                    "A system restart is required for the drivers to take effect.\n\n"
-                    "Would you like to restart your system now?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
+            
+            # Always prompt for restart if drivers were modified
+            if restart_needed:
+                if len(devices) == 0:
+                    # No devices detected - restart definitely needed
+                    reply = QMessageBox.question(
+                        self, "Restart Required",
+                        "✅ MemryX SDK 2.1 has been installed successfully!\n\n"
+                        "⚠️ RESTART REQUIRED\n"
+                        "Driver changes require a system restart to take effect.\n"
+                        "No MemryX devices detected yet.\n\n"
+                        "Would you like to restart your system now?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                else:
+                    # Devices detected but drivers were changed
+                    reply = QMessageBox.question(
+                        self, "Restart Recommended",
+                        "✅ MemryX SDK 2.1 has been installed successfully!\n\n"
+                        "⚠️ RESTART RECOMMENDED\n"
+                        f"Currently detected: {len(devices)} MemryX device(s)\n\n"
+                        "Driver version was changed (upgrade/downgrade).\n"
+                        "A system restart is recommended to ensure proper operation.\n\n"
+                        "Would you like to restart your system now?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                
                 if reply == QMessageBox.Yes:
-                    self.restart_system()
+                    # Access restart_system from parent (main window)
+                    parent = self.window()
+                    if hasattr(parent, 'restart_system'):
+                        parent.restart_system()
             else:
+                # No driver changes - just inform user
                 QMessageBox.information(
                     self, "Update Complete",
-                    "✅ MemryX SDK 2.1 is now installed and ready!\n\n"
+                    "✅ MemryX SDK 2.1 is ready!\n\n"
                     f"Detected {len(devices)} MemryX device(s).\n"
-                    "Packages have been held at version 2.1 for Frigate compatibility."
+                    "Packages have been held at version 2.1 for Frigate compatibility.\n\n"
+                    "No restart required."
                 )
             
             # Refresh status
@@ -2603,7 +2701,19 @@ class MemryXInstallWorker(QThread):
                     if input_text:
                         # For commands that need input, we can't mix password and content
                         raise ValueError("Use write_sudo_file for commands that need file input")
-                    return subprocess.run(sudo_cmd, input=f"{self.sudo_password}\n", text=True, check=True, capture_output=True, **kwargs)
+                    
+                    # Set environment variables for non-interactive mode
+                    env = os.environ.copy()
+                    env['DEBIAN_FRONTEND'] = 'noninteractive'
+                    env['NEEDRESTART_MODE'] = 'l'  # List mode - no interactive prompts
+                    env['DEBIAN_PRIORITY'] = 'critical'  # Skip all prompts
+                    env['DEBCONF_NONINTERACTIVE_SEEN'] = 'true'  # Debconf won't ask questions
+                    env['UCF_FORCE_CONFFOLD'] = '1'  # Keep old config files without asking
+                    env['NEEDRESTART_SUSPEND'] = '1'  # Suppress restart prompts
+                    env['NEEDRESTART_AUTORESTART_MODE'] = 'l'  # Suppress auto-restart daemon prompts
+                    
+                    return subprocess.run(sudo_cmd, input=f"{self.sudo_password}\n", text=True, 
+                                        check=True, capture_output=True, env=env, **kwargs)
                 else:
                     # Fallback to normal sudo (will work if terminal=true)
                     return subprocess.run(cmd, input=input_text, text=True, check=True, capture_output=True, **kwargs)
@@ -2675,7 +2785,10 @@ class MemryXInstallWorker(QThread):
             self.progress.emit(f"🔧 Installing kernel headers for: {kernel_version}")
             
             run_sudo_command(['sudo', 'apt', 'update'])
-            run_sudo_command(['sudo', 'apt', 'install', '-y', 'dkms', f'linux-headers-{kernel_version}'])
+            run_sudo_command(['sudo', 'apt', 'install', '-y',
+                                '-o', 'Dpkg::Options::=--force-confold',
+                                '-o', 'Dpkg::Options::=--force-confdef',
+                                'dkms', f'linux-headers-{kernel_version}'])
             
             # Step 3: Add MemryX key and repo
             self.progress.emit("🔑 Adding MemryX GPG key and repository...")
@@ -2745,7 +2858,10 @@ class MemryXInstallWorker(QThread):
                 
             # Try to install memx-drivers
             try:
-                run_sudo_command(['sudo', 'apt', 'install', '-y', 'memx-drivers'])
+                run_sudo_command(['sudo', 'apt', 'install', '-y',
+                                  '-o', 'Dpkg::Options::=--force-confold',
+                                  '-o', 'Dpkg::Options::=--force-confdef',
+                                  'memx-drivers'])
                 self.progress.emit("✅ memx-drivers installed successfully")
             except subprocess.CalledProcessError as e:
                 self.progress.emit(f"❌ Failed to install memx-drivers: {e}")
@@ -2783,7 +2899,10 @@ class MemryXInstallWorker(QThread):
             packages = ['memx-accl', 'mxa-manager']
             for pkg in packages:
                 self.progress.emit(f"📦 Installing {pkg}...")
-                run_sudo_command(['sudo', 'apt', 'install', '-y', pkg])
+                run_sudo_command(['sudo', 'apt', 'install', '-y',
+                                  '-o', 'Dpkg::Options::=--force-confold',
+                                  '-o', 'Dpkg::Options::=--force-confdef',
+                                  pkg])
             
             self.progress.emit("✅ MemryX installation completed successfully!")
             self.progress.emit("🔄 Please restart your computer to complete the installation.")
@@ -2811,116 +2930,263 @@ class MemryXUpdateWorker(QThread):
         self.script_dir = script_dir
         self.sudo_password = sudo_password
     
+    def log(self, message):
+        """Helper to emit progress and print to terminal"""
+        self.progress.emit(message)
+        print(message)  # Also print to terminal for ./launch.sh users
+    
     def run(self):
         try:
-            # Helper function to run sudo commands with password
-            def run_sudo_command(cmd, input_text=None, **kwargs):
+            # Helper function to run sudo commands with password and stream output
+            def run_sudo_command(cmd, stream_output=False, input_text=None, **kwargs):
                 if self.sudo_password:
                     sudo_cmd = ['sudo', '-S'] + cmd[1:]
                     if input_text:
                         raise ValueError("Use write_sudo_file for commands that need file input")
-                    return subprocess.run(sudo_cmd, input=f"{self.sudo_password}\n", text=True, check=True, capture_output=True, **kwargs)
+                    
+                    # Set environment variables for non-interactive mode
+                    env = os.environ.copy()
+                    env['DEBIAN_FRONTEND'] = 'noninteractive'
+                    env['NEEDRESTART_MODE'] = 'l'  # List mode - no interactive prompts
+                    env['DEBIAN_PRIORITY'] = 'critical'  # Skip all prompts
+                    env['DEBCONF_NONINTERACTIVE_SEEN'] = 'true'  # Debconf won't ask questions
+                    env['UCF_FORCE_CONFFOLD'] = '1'  # Keep old config files without asking
+                    env['NEEDRESTART_SUSPEND'] = '1'  # Suppress restart prompts
+                    env['NEEDRESTART_AUTORESTART_MODE'] = 'l'  # Suppress auto-restart daemon prompts
+                    
+                    if stream_output:
+                        # Extract timeout from kwargs if present (Popen doesn't accept it in constructor)
+                        timeout = kwargs.pop('timeout', None)
+                        
+                        # Stream output in real-time for long-running commands
+                        process = subprocess.Popen(
+                            sudo_cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            env=env,
+                            bufsize=1,  # Line buffered
+                            **kwargs
+                        )
+                        
+                        # Send password
+                        process.stdin.write(f"{self.sudo_password}\n")
+                        process.stdin.flush()
+                        
+                        # Stream output line by line
+                        for line in process.stdout:
+                            line = line.rstrip()
+                            if line and not line.startswith('[sudo]'):  # Skip sudo password prompt
+                                self.progress.emit(f"   {line}")
+                                print(f"   {line}")  # Also print to terminal
+                        
+                        # Wait with timeout if specified
+                        try:
+                            process.wait(timeout=timeout)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait()
+                            raise
+                        
+                        if process.returncode != 0:
+                            raise subprocess.CalledProcessError(process.returncode, sudo_cmd)
+                        
+                        return process
+                    else:
+                        # Capture output for quick commands
+                        return subprocess.run(
+                            sudo_cmd, 
+                            input=f"{self.sudo_password}\n", 
+                            text=True, 
+                            check=True, 
+                            capture_output=True, 
+                            env=env,
+                            **kwargs
+                        )
                 else:
                     return subprocess.run(cmd, input=input_text, text=True, check=True, capture_output=True, **kwargs)
             
             self.progress.emit("🚀 Starting MemryX SDK update to version 2.1...")
+            print("🚀 Starting MemryX SDK update to version 2.1...")  # Print to terminal
+            
+            # Track whether drivers were modified (for restart detection)
+            drivers_modified = False
+            previous_version = None
             
             # Check current version
             try:
                 result = subprocess.run(['dpkg-query', '-W', '-f=${Version}', 'memx-drivers'], 
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     current_version = result.stdout.strip()
+                    previous_version = current_version
                     version_major_minor = '.'.join(current_version.split('.')[:2])
-                    self.progress.emit(f"📦 Current MemryX SDK version: {current_version}")
+                    self.log(f"📦 Current MemryX SDK version: {current_version}")
                     
                     if version_major_minor == "2.1":
-                        self.progress.emit("✅ MemryX SDK is already at version 2.1")
+                        self.log("✅ MemryX SDK is already at version 2.1")
                         # Still ensure packages are held
-                        self.progress.emit("🔒 Ensuring packages are held at version 2.1...")
+                        self.log("🔒 Ensuring packages are held at version 2.1...")
                         try:
                             run_sudo_command(['sudo', 'apt-mark', 'hold', 'memx-drivers', 'memx-accl', 'mxa-manager'])
-                            self.progress.emit("✅ Packages held successfully")
+                            self.log("✅ Packages held successfully")
                         except Exception as e:
-                            self.progress.emit(f"⚠️ Could not hold packages: {e}")
+                            self.log(f"⚠️ Could not hold packages: {e}")
                         self.finished.emit(True)
                         return
+                    elif version_major_minor > "2.1":
+                        self.log(f"⚠️ Current version {current_version} is newer than 2.1")
+                        self.log("🔄 Will downgrade to version 2.1 (required for Frigate)")
+                        drivers_modified = True  # Downgrade requires restart
+                    else:
+                        self.log("⬆️ Will upgrade to version 2.1")
+                        drivers_modified = True  # Upgrade requires restart
                 else:
-                    self.progress.emit("📥 MemryX SDK not installed - installing version 2.1...")
+                    self.log("📥 MemryX SDK not installed - installing version 2.1...")
+                    drivers_modified = True  # New installation requires restart
             except Exception as e:
-                self.progress.emit(f"⚠️ Could not check current version: {e}")
-                self.progress.emit("📥 Proceeding with installation...")
+                self.log(f"⚠️ Could not check current version: {e}")
+                self.log("📥 Proceeding with installation...")
+                drivers_modified = True  # Assume restart needed if we can't check
             
             # Remove any holds on MemryX packages
-            self.progress.emit("🔓 Removing package holds...")
+            self.log("🔓 Removing package holds...")
             try:
                 run_sudo_command(['sudo', 'apt-mark', 'unhold', 'memx-drivers', 'memx-accl', 'mxa-manager'])
             except subprocess.CalledProcessError:
                 pass  # May not be held
             
             # Update package lists
-            self.progress.emit("📥 Updating package lists...")
+            self.log("📥 Updating package lists...")
             run_sudo_command(['sudo', 'apt', 'update'])
             
-            # Run dist-upgrade to ensure dependencies are up to date
-            self.progress.emit("⬆️ Upgrading system packages...")
-            run_sudo_command(['sudo', 'apt', 'dist-upgrade', '-y'])
+            # Skip dist-upgrade - it's unnecessary and can cause hangs
+            # Just install the specific packages we need
+            self.log("📦 Preparing to install MemryX SDK 2.1...")
             
             # Install specific version 2.1.* for all three packages
-            self.progress.emit("📦 Installing MemryX SDK 2.1 packages...")
-            self.progress.emit("   • memx-drivers=2.1.*")
-            self.progress.emit("   • memx-accl=2.1.*")
-            self.progress.emit("   • mxa-manager=2.1.*")
+            self.log("📦 Installing MemryX SDK 2.1 packages...")
+            self.log("   • memx-drivers=2.1.*")
+            self.log("   • memx-accl=2.1.*")
+            self.log("   • mxa-manager=2.1.*")
             
             try:
-                run_sudo_command(['sudo', 'apt', 'install', '-y', 
-                                'memx-drivers=2.1.*', 
-                                'memx-accl=2.1.*', 
-                                'mxa-manager=2.1.*'])
-                self.progress.emit("✅ MemryX SDK 2.1 packages installed successfully")
+                # Add timeout to prevent hanging indefinitely
+                # --allow-downgrades: Permits downgrading from 2.2+ to 2.1 (required for Frigate)
+                # This will:
+                #   - Remove the currently installed version (e.g., 2.2, 3.x)
+                #   - Install version 2.1.* packages from the repository
+                #   - Update kernel modules and device drivers
+                self.log("")
+                self.log("Installing packages (this may take 2-5 minutes)...")
+                
+                # Temporarily disable needrestart to prevent interactive prompts
+                try:
+                    self.log("🔧 Disabling needrestart service temporarily...")
+                    run_sudo_command(['sudo', 'systemctl', 'mask', 'needrestart.service'], timeout=10)
+                except Exception as e:
+                    self.log(f"⚠️ Could not mask needrestart: {e}")
+                
+                try:
+                    # Use stream_output=True to show real-time progress
+                    run_sudo_command(
+                        ['sudo', 'apt', 'install', '-y', '--allow-downgrades',
+                         '-o', 'Dpkg::Options::=--force-confold',  # Keep old config files
+                         '-o', 'Dpkg::Options::=--force-confdef',  # Use default for new configs
+                         'memx-drivers=2.1.*', 
+                         'memx-accl=2.1.*', 
+                         'mxa-manager=2.1.*'],
+                        stream_output=True,  # Enable real-time output streaming
+                        timeout=300  # 5 minute timeout
+                    )
+                    self.log("✅ MemryX SDK 2.1 packages installed successfully")
+                finally:
+                    # Re-enable needrestart
+                    try:
+                        self.log("🔧 Re-enabling needrestart service...")
+                        run_sudo_command(['sudo', 'systemctl', 'unmask', 'needrestart.service'], timeout=10)
+                    except Exception as e:
+                        self.log(f"⚠️ Could not unmask needrestart: {e}")
+            except subprocess.TimeoutExpired:
+                self.log("❌ Installation timed out after 5 minutes")
+                self.log("💡 Try running the update again or check your internet connection")
+                self.finished.emit(False)
+                return
             except subprocess.CalledProcessError as e:
-                self.progress.emit(f"❌ Failed to install packages: {e}")
+                self.log(f"❌ Failed to install packages")
                 # Try to get more info
                 try:
                     search_result = subprocess.run(['apt-cache', 'policy', 'memx-drivers'], 
-                                                 capture_output=True, text=True)
-                    self.progress.emit(f"📋 Available versions:\n{search_result.stdout}")
+                                                 capture_output=True, text=True, timeout=10)
+                    self.log(f"📋 Available versions:\n{search_result.stdout}")
                 except:
                     pass
-                raise e
+                
+                if e.stderr:
+                    error_text = e.stderr if isinstance(e.stderr, str) else e.stderr.decode('utf-8', errors='ignore')
+                    # Only show first 10 lines of error to avoid overwhelming the log
+                    error_lines = error_text.split('\n')[:10]
+                    self.log("Error details:")
+                    for line in error_lines:
+                        if line.strip():
+                            self.log(f"   {line}")
+                
+                self.finished.emit(False)
+                return
             
             # Hold packages at version 2.1
-            self.progress.emit("🔒 Holding packages at version 2.1 to prevent auto-updates...")
+            self.log("🔒 Holding packages at version 2.1 to prevent auto-updates...")
             run_sudo_command(['sudo', 'apt-mark', 'hold', 'memx-drivers', 'memx-accl', 'mxa-manager'])
-            self.progress.emit("✅ Packages held at version 2.1")
+            self.log("✅ Packages held at version 2.1")
             
-            # Verify installation
-            self.progress.emit("🔍 Verifying installation...")
+            # Verify installation and check if version changed
+            self.log("🔍 Verifying installation...")
+            new_version = None
             try:
                 result = subprocess.run(['dpkg-query', '-W', '-f=${Version}', 'memx-drivers'], 
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     new_version = result.stdout.strip()
-                    self.progress.emit(f"✅ Installed version: {new_version}")
+                    self.log(f"✅ Installed version: {new_version}")
+                    
+                    # Check if version actually changed (drivers were modified)
+                    if previous_version and previous_version != new_version:
+                        drivers_modified = True
+                        if previous_version > new_version:
+                            self.log(f"📉 Downgraded from {previous_version} to {new_version}")
+                        else:
+                            self.log(f"📈 Upgraded from {previous_version} to {new_version}")
             except:
                 pass
             
-            self.progress.emit("=" * 60)
-            self.progress.emit("✅ MemryX SDK 2.1 update completed successfully!")
-            self.progress.emit("🎯 Your system is now compatible with Frigate")
-            self.progress.emit("=" * 60)
+            self.log("=" * 60)
+            self.log("✅ MemryX SDK 2.1 update completed successfully!")
+            self.log("🎯 Your system is now compatible with Frigate")
             
+            # Important: Inform about restart requirement if drivers were modified
+            if drivers_modified:
+                self.log("")
+                self.log("⚠️  RESTART REQUIRED")
+                self.log("   Driver changes require a system restart to take effect.")
+                self.log("   You will be prompted to restart after closing this window.")
+            
+            self.log("=" * 60)
+            
+            # Emit both success status and whether restart is needed
+            # Store restart flag in the worker for the UI to check
+            self.restart_needed = drivers_modified
             self.finished.emit(True)
             
         except subprocess.CalledProcessError as e:
             error_msg = f"❌ Command failed: {e.cmd}"
             if e.stderr:
                 error_msg += f"\n   Error: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr}"
-            self.progress.emit(error_msg)
+            self.log(error_msg)
             self.finished.emit(False)
             
         except Exception as e:
-            self.progress.emit(f"❌ Update error: {str(e)}")
+            self.log(f"❌ Update error: {str(e)}")
             self.finished.emit(False)
 
 class FFmpegInstallWorker(QThread):
@@ -5834,13 +6100,9 @@ version: 0.17-0
             # Get sudo password for restart
             sudo_password = PasswordDialog.get_sudo_password(self, "system restart")
             if sudo_password is None:
-                self.prereq_progress.append("❌ System restart cancelled - password required")
                 return
             
             try:
-                self.prereq_progress.append("🔄 Initiating system restart...")
-                self.prereq_progress.append("💾 Please save any open work before the restart completes.")
-                
                 # Store password for _perform_restart
                 self.restart_sudo_password = sudo_password
                 
@@ -5848,7 +6110,6 @@ version: 0.17-0
                 QTimer.singleShot(2000, self._perform_restart)
                 
             except Exception as e:
-                self.prereq_progress.append(f"❌ Error initiating restart: {str(e)}")
                 QMessageBox.warning(
                     self, "Restart Failed", 
                     f"❌ Could not restart the system automatically: {str(e)}\n\n"
@@ -5860,14 +6121,18 @@ version: 0.17-0
     def _perform_restart(self):
         """Actually perform the system restart"""
         try:
-            # Show final warning
-            QMessageBox.information(
-                self, "Restarting Now", 
+            # Show final warning with rich text formatting
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Restarting Now")
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setText(
                 "🔄 Your computer will restart in a few seconds.\n\n"
-                "The Frigate Launcher will start automatically after restart.\n"
-                "MemryX devices should be detected and ready for use.",
-                QMessageBox.Ok
+                "<b>Launch the Frigate GUI after restarting.</b>\n"
+                "MemryX devices should be detected and ready for use."
             )
+            msg_box.setTextFormat(Qt.RichText)
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec()
             
             # Perform the restart with sudo password
             if hasattr(self, 'restart_sudo_password') and self.restart_sudo_password:
