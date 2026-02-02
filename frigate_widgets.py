@@ -1691,7 +1691,7 @@ class LaunchMonitorWidget(QWidget):
         
         build_note = QLabel(
             "💡 <b>Step 1:</b> Build the Docker image before starting Frigate. "
-            "<b>Rebuild required</b> if you modified any Frigate files."
+            "<b>Rebuild</b> if you modified any Frigate files."
         )
         build_note.setWordWrap(False)
         build_note.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
@@ -1736,7 +1736,7 @@ class LaunchMonitorWidget(QWidget):
         build_buttons = QHBoxLayout()
         build_buttons.setSpacing(12)
         
-        self.build_btn = QPushButton("🔨 Rebuild Image")
+        self.build_btn = QPushButton("🔨 Build Image")
         self.build_btn.clicked.connect(self.build_image)
         self.build_btn.setStyleSheet(self.get_button_style(PRIMARY_COLOR))
         self.build_btn.setMinimumHeight(48)
@@ -2252,7 +2252,7 @@ class LaunchMonitorWidget(QWidget):
                         border: 1px solid #fecaca;
                     }}
                 """)
-                self.build_btn.setText("🔨 Build Frigate Image")
+                self.build_btn.setText("🔨 Build Image")
                 self.logs_output.append("⚠ Docker image not built yet")
                 
                 # Disable Start button when no image exists
@@ -2332,7 +2332,13 @@ class LaunchMonitorWidget(QWidget):
             reply = QMessageBox.question(
                 self, "Stop Build",
                 "⚠️ Are you sure you want to stop the Docker build process?\n\n"
-                "The build will be interrupted and you'll need to start over.",
+                "The build will be interrupted and you'll need to start over.\n\n"
+                "💡 If the build appears stuck:\n"
+                "   • Stop the build using this button\n"
+                "   • Wait for the process to fully terminate\n"
+                "   • Check your internet connection\n"
+                "   • Try building again\n"
+                "   • If it keeps failing, check the logs for errors",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
