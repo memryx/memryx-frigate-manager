@@ -558,6 +558,7 @@ class PrerequisitesWidget(QWidget):
                 border-radius: 6px;
             }}
         """)
+        self.memryx_installed_label.setVisible(False)  # Hidden by default until status check
         status_layout.addWidget(self.memryx_installed_label, 0)  # No stretch
         
         memryx_section_layout.addWidget(status_container)
@@ -842,13 +843,16 @@ class PrerequisitesWidget(QWidget):
         # Debug logging
         self.log_output.append(f"📊 Status Check: MemryX={memryx_ok}, Docker={docker_ok}")
         
-        # Only emit completed status if BOTH MemryX and Docker are fully installed
+        # Determine status based on what's installed
         if memryx_ok and docker_ok:
             self.log_output.append("✅ All prerequisites completed!")
             self.status_changed.emit(STATUS_COMPLETED)
-        else:
+        elif memryx_ok or docker_ok:
             self.log_output.append("⚡ Prerequisites in progress...")
             self.status_changed.emit(STATUS_IN_PROGRESS)
+        else:
+            self.log_output.append("○ Prerequisites not started - no components installed")
+            self.status_changed.emit(STATUS_NOT_STARTED)
         
     def check_memryx_status(self):
         """Check MemryX installation status"""
@@ -980,6 +984,8 @@ class PrerequisitesWidget(QWidget):
                             border-radius: 4px;
                         }}
                     """)
+                    # Show the installed badge only when version is 2.1
+                    self.memryx_installed_label.setVisible(True)
                 
                 self.memryx_status_label.setText(status_text)
                 self.install_memryx_btn.setVisible(False)
@@ -1011,6 +1017,7 @@ class PrerequisitesWidget(QWidget):
                 """)
                 self.install_memryx_btn.setVisible(True)
                 self.update_memryx_btn.setVisible(False)
+                self.memryx_installed_label.setVisible(False)  # Hide the badge when not installed
                 self.log_output.append("❌ MemryX SDK not detected - installation required")
                 
                 # Re-enable button
