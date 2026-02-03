@@ -6,6 +6,8 @@ A simple GUI application that installs and manages [Frigate NVR](https://github.
 
 <img src="assets/gui.png" alt="MemryX Frigate Manager GUI" width="800">
 
+**[Read our step-by-step setup guide on DevBlog →](https://devblog.memryx.com/memryx-frigate-manager/)** for more detailed walkthrough.
+
 ## Quick Start
 
 ### 1. Clone the repository
