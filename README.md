@@ -40,6 +40,11 @@ The application provides a simple 3-step workflow:
 2. **Configure** - Easy camera setup and detection settings
 3. **Launch** - Start and manage your Frigate instance
 
+## Help and Discussion
+
+Check out [our Community forum section](https://community.memryx.com/c/frigate) for support or feedback on this GUI and MemryX+Frigate integration in general!
+
+
 ## License
 
 Copyright © 2026 MemryX Inc.
