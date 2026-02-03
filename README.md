@@ -4,6 +4,8 @@ A simple GUI application that installs and manages [Frigate NVR](https://github.
 
 **Everything is handled by the GUI** - Docker, MemryX SDK, Frigate, and all dependencies are automatically installed through the application.
 
+<img src="assets/gui.png" alt="MemryX Frigate Manager GUI" width="800">
+
 ## Quick Start
 
 ### 1. Clone the repository
