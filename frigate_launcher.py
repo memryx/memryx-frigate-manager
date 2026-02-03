@@ -507,17 +507,20 @@ class PrerequisitesWidget(QWidget):
         memryx_section_layout.addWidget(memryx_header)
         
         # Description note
-        memryx_note = QLabel("MemryX accelerator drivers and runtime libraries")
+        memryx_note = QLabel(
+            "MemryX accelerator drivers and runtime libraries\n"
+            "⚠️ Note: Frigate currently requires SDK version 2.1 for compatibility"
+        )
         memryx_note.setWordWrap(True)
         memryx_note.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_SECONDARY};
-                font-size: 16px;
+                font-size: 14px;
                 padding: 12px 16px;
                 background: #eff6ff;
                 border-left: 3px solid #60a5fa;
                 border-radius: 8px;
-                line-height: 1.5;
+                line-height: 1.6;
             }}
         """)
         memryx_section_layout.addWidget(memryx_note)
@@ -1003,7 +1006,8 @@ class PrerequisitesWidget(QWidget):
                 self.check_memryx_btn.setEnabled(True)
                 QApplication.processEvents()  # Force UI update
                 
-                return True  # MemryX is installed
+                # Return False if update is needed, True if version 2.1 is installed
+                return not needs_update
             else:
                 self.memryx_status_label.setText("Status: ❌ Not Installed (no devices found)")
                 self.memryx_status_label.setStyleSheet(f"""
@@ -1249,33 +1253,52 @@ class PrerequisitesWidget(QWidget):
             
     def update_memryx(self):
         """Update MemryX SDK to version 2.1 (required for Frigate compatibility)"""
+        # Check current version to customize the message
+        current_version = None
+        action_word = "update/install"
+        try:
+            result = subprocess.run(['dpkg-query', '-W', '-f=${Version}', 'memx-drivers'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                current_version = result.stdout.strip()
+                version_major_minor = '.'.join(current_version.split('.')[:2])
+                if version_major_minor > "2.1":
+                    action_word = "downgrade"
+                elif version_major_minor < "2.1":
+                    action_word = "upgrade"
+                else:
+                    action_word = "reinstall"
+        except:
+            pass
+        
         reply = QMessageBox.question(
-            self, "Update MemryX SDK to 2.1",
-            "This will update/install MemryX SDK to version 2.1.\n\n"
-            "⚠️ IMPORTANT: Frigate only supports MemryX SDK version 2.1\n\n"
-            "The update process will:\n"
-            "• Update package repositories\n"
-            "• Install memx-drivers=2.1.*\n"
-            "• Install memx-accl=2.1.*\n"
-            "• Install mxa-manager=2.1.*\n"
+            self, f"{action_word.title()} MemryX SDK to 2.1",
+            f"This will {action_word} MemryX SDK to version 2.1.\n\n"
+            "⚠️ IMPORTANT: Frigate currently only supports MemryX SDK version 2.1\n"
+            "   (Version 2.2+ compatibility is in development)\n\n"
+            f"{f'Current version: {current_version}' if current_version else ''}\n\n"
+            "The process will:\n"
+            "• Ensure stable repository is configured\n"
+            "• Force remove existing packages (if any)\n"
+            "• Clean install memx-drivers, memx-accl, mxa-manager 2.1.*\n"
             "• Hold packages at version 2.1 to prevent auto-updates\n"
             "• System restart may be required if drivers are updated\n\n"
             "This requires sudo privileges and may take several minutes.\n\n"
-            "Continue with MemryX SDK 2.1 update?",
+            f"Continue with MemryX SDK 2.1 {action_word}?",
             QMessageBox.Yes | QMessageBox.No
         )
         
         if reply != QMessageBox.Yes:
             return
         
-        sudo_password = PasswordDialog.get_sudo_password(self, "MemryX SDK update to version 2.1")
+        sudo_password = PasswordDialog.get_sudo_password(self, f"MemryX SDK {action_word} to version 2.1")
         if sudo_password is None:
-            self.log_output.append("❌ MemryX SDK update cancelled - password required")
+            self.log_output.append(f"❌ MemryX SDK {action_word} cancelled - password required")
             return
         
         # Disable all buttons during update operation
         self.update_memryx_btn.setEnabled(False)
-        self.update_memryx_btn.setText("🔄 Updating to 2.1...")
+        self.update_memryx_btn.setText(f"🔄 {action_word.title()}ing to 2.1...")
         self.install_memryx_btn.setEnabled(False)
         self.check_memryx_btn.setEnabled(False)
         self.check_docker_btn.setEnabled(False)
@@ -3065,6 +3088,36 @@ class MemryXUpdateWorker(QThread):
             except subprocess.CalledProcessError:
                 pass  # May not be held
             
+            # Ensure stable repository is configured
+            self.log("🔧 Ensuring stable repository is configured...")
+            try:
+                # Check if stable repo exists in sources
+                stable_repo_url = "https://developer.memryx.com/deb"
+                sources_file = "/etc/apt/sources.list.d/memryx.list"
+                
+                # Read current sources
+                try:
+                    with open(sources_file, 'r') as f:
+                        current_sources = f.read()
+                except:
+                    current_sources = ""
+                
+                # Check if stable repository line exists
+                stable_line = f"deb [arch=amd64] {stable_repo_url} stable main"
+                if "stable main" not in current_sources:
+                    self.log(f"📝 Adding stable repository to {sources_file}...")
+                    # Append stable repo line
+                    run_sudo_command(
+                        ['sudo', 'sh', '-c', 
+                         f'echo "{stable_line}" >> {sources_file}']
+                    )
+                    self.log("✅ Stable repository added")
+                else:
+                    self.log("✅ Stable repository already configured")
+            except Exception as e:
+                self.log(f"⚠️ Could not configure stable repo: {e}")
+                self.log("   Continuing with existing repositories...")
+            
             # Update package lists
             self.log("📥 Updating package lists...")
             run_sudo_command(['sudo', 'apt', 'update'])
@@ -3073,6 +3126,13 @@ class MemryXUpdateWorker(QThread):
             # Just install the specific packages we need
             self.log("📦 Preparing to install MemryX SDK 2.1...")
             
+            # Temporarily disable needrestart to prevent interactive prompts (do this early)
+            try:
+                self.log("🔧 Disabling needrestart service temporarily...")
+                run_sudo_command(['sudo', 'systemctl', 'mask', 'needrestart.service'], timeout=10)
+            except Exception as e:
+                self.log(f"⚠️ Could not mask needrestart: {e}")
+            
             # Install specific version 2.1.* for all three packages
             self.log("📦 Installing MemryX SDK 2.1 packages...")
             self.log("   • memx-drivers=2.1.*")
@@ -3080,26 +3140,63 @@ class MemryXUpdateWorker(QThread):
             self.log("   • mxa-manager=2.1.*")
             
             try:
-                # Add timeout to prevent hanging indefinitely
-                # --allow-downgrades: Permits downgrading from 2.2+ to 2.1 (required for Frigate)
-                # This will:
-                #   - Remove the currently installed version (e.g., 2.2, 3.x)
-                #   - Install version 2.1.* packages from the repository
-                #   - Update kernel modules and device drivers
-                self.log("")
-                self.log("Installing packages (this may take 2-5 minutes)...")
-                
-                # Temporarily disable needrestart to prevent interactive prompts
-                try:
-                    self.log("🔧 Disabling needrestart service temporarily...")
-                    run_sudo_command(['sudo', 'systemctl', 'mask', 'needrestart.service'], timeout=10)
-                except Exception as e:
-                    self.log(f"⚠️ Could not mask needrestart: {e}")
                 
                 try:
+                    # FORCE REMOVE all MemryX packages first to ensure clean state
+                    # This is the most reliable approach - removes everything completely
+                    self.log("�️  Force removing ALL MemryX packages for clean slate...")
+                    try:
+                        # Use dpkg --remove --force-all to bypass dependency issues
+                        run_sudo_command(
+                            ['sudo', 'dpkg', '--remove', '--force-all',
+                             'memx-drivers', 'memx-accl', 'mxa-manager'],
+                            stream_output=True,
+                            timeout=60
+                        )
+                        self.log("✅ Packages force-removed")
+                    except Exception as e:
+                        self.log(f"⚠️ Force remove had issues: {e}")
+                    
+                    # Purge any leftover config files
+                    try:
+                        run_sudo_command(
+                            ['sudo', 'dpkg', '--purge', '--force-all',
+                             'memx-drivers', 'memx-accl', 'mxa-manager'],
+                            stream_output=True,
+                            timeout=60
+                        )
+                        self.log("✅ Config files purged")
+                    except Exception as e:
+                        self.log(f"⚠️ Purge had issues (this is ok): {e}")
+                    
+                    # Now fix any remaining dpkg state issues
+                    self.log("🔧 Fixing package system state...")
+                    try:
+                        run_sudo_command(['sudo', 'dpkg', '--configure', '-a'], stream_output=True, timeout=60)
+                        self.log("✅ dpkg state fixed")
+                    except Exception as e:
+                        self.log(f"⚠️ dpkg configure: {e}")
+                    
+                    # Fix broken dependencies with apt
+                    self.log("🔧 Fixing broken dependencies...")
+                    try:
+                        run_sudo_command(['sudo', 'apt', '--fix-broken', 'install', '-y'], stream_output=True, timeout=120)
+                        self.log("✅ Dependencies fixed")
+                    except Exception as e:
+                        self.log(f"⚠️ apt fix-broken: {e}")
+                    
+                    self.log("✅ Package system ready for clean installation")
+                    
+                    # Now do a clean install of 2.1
+                    self.log("")
+                    self.log("📦 Installing MemryX SDK 2.1 packages from STABLE repository...")
+                    self.log("   (This ensures version 2.1, required for Frigate)")
+                    
                     # Use stream_output=True to show real-time progress
+                    # Force install from stable repository using -t option
                     run_sudo_command(
-                        ['sudo', 'apt', 'install', '-y', '--allow-downgrades',
+                        ['sudo', 'apt', 'install', '-y',
+                         '-t', 'stable',  # Force install from stable repository
                          '-o', 'Dpkg::Options::=--force-confold',  # Keep old config files
                          '-o', 'Dpkg::Options::=--force-confdef',  # Use default for new configs
                          'memx-drivers=2.1.*', 
@@ -3108,7 +3205,7 @@ class MemryXUpdateWorker(QThread):
                         stream_output=True,  # Enable real-time output streaming
                         timeout=300  # 5 minute timeout
                     )
-                    self.log("✅ MemryX SDK 2.1 packages installed successfully")
+                    self.log("✅ MemryX SDK 2.1 packages installed successfully from stable repository")
                 finally:
                     # Re-enable needrestart
                     try:

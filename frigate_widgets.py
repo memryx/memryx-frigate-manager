@@ -1011,7 +1011,7 @@ class ConfigureWidget(QWidget):
         ffmpeg_header.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 14px; font-weight: 600;")
         ffmpeg_layout.addWidget(ffmpeg_header)
         
-        ffmpeg_desc = QLabel("Install VA-API drivers for hardware-accelerated video decoding (Intel/AMD GPUs)")
+        ffmpeg_desc = QLabel("Install VA-API drivers for hardware-accelerated video decoding (Intel/AMD Systems.)")
         ffmpeg_desc.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 14px;")
         ffmpeg_desc.setWordWrap(True)
         ffmpeg_layout.addWidget(ffmpeg_desc)
@@ -1020,7 +1020,7 @@ class ConfigureWidget(QWidget):
         compat_warning_container = QHBoxLayout()
         compat_warning_container.setContentsMargins(0, 0, 0, 0)
         
-        warning_text = QLabel("⚠️  <b>Hardware Compatibility:</b> This feature uses VA-API and is only supported on <b>Intel and AMD GPUs</b>. For NVIDIA or other hardware, see the documentation below.")
+        warning_text = QLabel("⚠️  <b>Hardware Compatibility:</b> This feature uses VA-API and is only supported on <b>Intel and AMD Systems</b>. For NVIDIA or other hardware, see the documentation below.")
         warning_text.setStyleSheet("""
             QLabel {
                 color: #92400e;
@@ -1648,6 +1648,53 @@ class ConfigureWidget(QWidget):
 
 
 # ============================================================================
+# LOG STREAMING WORKER
+# ============================================================================
+class LogStreamWorker(QThread):
+    """Background worker for streaming Docker container logs"""
+    log_line = Signal(str)
+    
+    def __init__(self, container_name='frigate'):
+        super().__init__()
+        self.container_name = container_name
+        self._stop_requested = False
+        self.process = None
+        
+    def run(self):
+        """Stream container logs"""
+        try:
+            self.process = subprocess.Popen(
+                ['docker', 'logs', '-f', self.container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            
+            for line in self.process.stdout:
+                if self._stop_requested:
+                    break
+                if line:
+                    self.log_line.emit(line.rstrip())
+                    
+        except Exception as e:
+            self.log_line.emit(f"❌ Log streaming error: {str(e)}")
+        finally:
+            if self.process:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    
+    def stop(self):
+        """Stop log streaming"""
+        self._stop_requested = True
+        if self.process:
+            self.process.terminate()
+            
+
+# ============================================================================
 # LAUNCH & MONITOR WIDGET (Section 4)
 # ============================================================================  
 class LaunchMonitorWidget(QWidget):
@@ -1661,6 +1708,7 @@ class LaunchMonitorWidget(QWidget):
         self.frigate_dir = os.path.join(script_dir, "frigate")
         self.is_running = False
         self.status_timer = None
+        self.log_worker = None
         self.setup_ui()
         
     def setup_ui(self):
@@ -1692,7 +1740,8 @@ class LaunchMonitorWidget(QWidget):
         
         build_note = QLabel(
             "💡 <b>Step 1:</b> Build the Docker image before starting Frigate. "
-            "<b>Rebuild</b> if you modified any Frigate files."
+            "<b>Rebuild</b> if you modified any Frigate files.<br>"
+            "⚠️ <i>Start Frigate only after the build button is re-enabled</i>"
         )
         build_note.setWordWrap(False)
         build_note.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
@@ -1810,7 +1859,7 @@ class LaunchMonitorWidget(QWidget):
         
         workflow_note = QLabel(
             "📝 <b>Step 2:</b> After building, click <b>'▶ Start'</b> to launch Frigate. "
-            "Then scroll down to view live logs below."
+            "Then <b>click '📹 Live View'</b> button below to access the monitoring site, or scroll down to view live logs."
         )
         workflow_note.setWordWrap(False)
         workflow_note.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
@@ -2170,6 +2219,10 @@ class LaunchMonitorWidget(QWidget):
                     self.stop_btn.setEnabled(True)
                     self.restart_btn.setEnabled(True)
                     self.status_changed.emit(STATUS_COMPLETED)
+                    
+                # Start log streaming if not already streaming
+                if not self.log_worker or not self.log_worker.isRunning():
+                    QTimer.singleShot(500, self.start_log_streaming)
             else:
                 self.is_running = False
                 self.status_display.setText("Status: 🔴 Stopped")
@@ -2440,6 +2493,8 @@ class LaunchMonitorWidget(QWidget):
         
         if success:
             QTimer.singleShot(2000, self.check_status)
+            # Start streaming logs
+            self.start_log_streaming()
         else:
             QTimer.singleShot(1000, self.check_status)
             
@@ -2461,6 +2516,9 @@ class LaunchMonitorWidget(QWidget):
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("⏹ Stop Frigate")
         
+        # Stop log streaming
+        self.stop_log_streaming()
+        
         QTimer.singleShot(2000, self.check_status)
             
     def restart_frigate(self):
@@ -2468,6 +2526,9 @@ class LaunchMonitorWidget(QWidget):
         self.logs_output.append("\n🔄 ====== Restarting Frigate ======")
         self.restart_btn.setEnabled(False)
         self.restart_btn.setText("🔄 Restarting...")
+        
+        # Stop log streaming before restart
+        self.stop_log_streaming()
         
         # Use DockerWorker to restart the container
         from frigate_launcher import DockerWorker
@@ -2482,6 +2543,29 @@ class LaunchMonitorWidget(QWidget):
         self.restart_btn.setText("🔄 Restart")
         
         QTimer.singleShot(2000, self.check_status)
+        
+        # Restart log streaming
+        if success:
+            self.start_log_streaming()
+    
+    def start_log_streaming(self):
+        """Start streaming Docker container logs"""
+        # Stop any existing log stream first
+        self.stop_log_streaming()
+        
+        self.logs_output.append("\n📋 ====== Streaming Frigate Logs ======")
+        
+        # Start log worker
+        self.log_worker = LogStreamWorker(container_name='frigate')
+        self.log_worker.log_line.connect(self.logs_output.append)
+        self.log_worker.start()
+    
+    def stop_log_streaming(self):
+        """Stop streaming Docker container logs"""
+        if self.log_worker and self.log_worker.isRunning():
+            self.log_worker.stop()
+            self.log_worker.wait(2000)  # Wait up to 2 seconds
+            self.log_worker = None
         
     def open_web_ui(self, path=""):
         """Open Frigate web UI in browser"""
