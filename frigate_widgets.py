@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 New Widgets for Frigate Launcher Redesign
 Contains FrigateInstallWidget, ConfigureWidget, and LaunchMonitorWidget

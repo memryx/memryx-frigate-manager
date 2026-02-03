@@ -1,6 +1,6 @@
 # MemryX Frigate Manager
 
-A simple GUI application that installs and manages Frigate NVR with MemryX AI acceleration.
+A simple GUI application that installs and manages [Frigate NVR](https://github.com/blakeblackshear/frigate) for use with MemryX accelerators.
 
 **Everything is handled by the GUI** - Docker, MemryX SDK, Frigate, and all dependencies are automatically installed through the application.
 
@@ -40,4 +40,6 @@ The application provides a simple 3-step workflow:
 
 ## License
 
-[License information to be added]
+Copyright © 2026 MemryX Inc.
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

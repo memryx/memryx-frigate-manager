@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 MemryX + Frigate Launcher
 A comprehensive GUI application for managing Frigate installation and configuration

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 Simple Camera Configuration GUI for Frigate + MemryX
 A simplified GUI focused solely on camera configuration - matches config_gui.py design

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """
 Advanced Configuration GUI for Frigate + MemryX
 A comprehensive GUI for advanced Frigate configuration management
