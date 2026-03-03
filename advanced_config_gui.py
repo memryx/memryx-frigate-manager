@@ -27,6 +27,8 @@ import xml.etree.ElementTree as ET
 import urllib.request
 import urllib.parse
 import re
+import subprocess
+import tempfile
 
 # Import ONVIF discovery classes from simple_camera_gui instead of duplicating
 try:
@@ -2640,6 +2642,76 @@ class ConfigGUI(QWidget):
                 'manufacturer_detected': False
             }
 
+    def save_with_sudo(self, file_path, content):
+        """Save file using sudo when permission is denied
+        
+        Args:
+            file_path: Path to the file to save
+            content: String content to write
+            
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            # Import PasswordDialog from frigate_launcher
+            from frigate_launcher import PasswordDialog
+            
+            # Prompt for password
+            dialog = PasswordDialog(self, "saving configuration file")
+            if dialog.exec() != QDialog.Accepted:
+                return False  # User cancelled
+            
+            password = dialog.get_password()
+            if not password:
+                return False
+            
+            # Write to temporary file first
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.yaml', text=True)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    f.write(content)
+                
+                # Move with sudo
+                cmd = f"echo '{password}' | sudo -S mv '{temp_path}' '{file_path}'"
+                process = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                stdout, stderr = process.communicate()
+                
+                if process.returncode == 0:
+                    # Also fix permissions so user can edit it next time
+                    chmod_cmd = f"echo '{password}' | sudo -S chmod 666 '{file_path}'"
+                    subprocess.run(chmod_cmd, shell=True, capture_output=True, text=True)
+                    return True
+                else:
+                    error_msg = stderr.strip() if stderr else "Unknown error"
+                    QMessageBox.warning(
+                        self,
+                        "Permission Error",
+                        f"Failed to save configuration:\n{error_msg}\n\n"
+                        "Please check your sudo password and try again."
+                    )
+                    return False
+            finally:
+                # Clean up temp file if it still exists
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save with sudo: {str(e)}"
+            )
+            return False
+
     def save_config(self):
         try:
             # --- MQTT ---
@@ -2790,8 +2862,13 @@ class ConfigGUI(QWidget):
         # Add spacing between cameras for better readability
         yaml_content = MyDumper.add_camera_spacing(yaml_content)
         
-        with open(save_path, "w") as f:
-            f.write(yaml_content)
+        try:
+            with open(save_path, "w") as f:
+                f.write(yaml_content)
+        except PermissionError:
+            # Try with sudo if permission denied
+            if not self.save_with_sudo(save_path, yaml_content):
+                return  # User cancelled or sudo failed
 
         print(f"[SUCCESS] Config saved to {save_path}")
 
