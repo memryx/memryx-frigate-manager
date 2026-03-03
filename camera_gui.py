@@ -48,6 +48,62 @@ def cleanup_all_threads():
             pass
     _active_onvif_workers.clear()
 
+def update_config_with_ffmpeg(config_path):
+    """
+    Update config.yaml with FFmpeg hardware acceleration settings.
+    Returns True if config was updated, False if already present or error occurred.
+    """
+    try:
+        from collections import OrderedDict
+        
+        # Check if config file exists
+        if not os.path.exists(config_path):
+            return False  # Config doesn't exist
+        
+        # Read current config preserving order
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f) or {}
+        
+        # Check if ffmpeg section already has hwaccel_args at top level
+        if 'ffmpeg' in config and isinstance(config['ffmpeg'], dict) and 'hwaccel_args' in config['ffmpeg']:
+            return False  # Already present, no update needed
+        
+        # Create new ordered config with ffmpeg after mqtt
+        new_config = OrderedDict()
+        ffmpeg_added = False
+        
+        for key, value in config.items():
+            new_config[key] = value
+            
+            # After adding mqtt section, add ffmpeg (top-level)
+            if key == 'mqtt' and not ffmpeg_added:
+                if 'ffmpeg' not in config:
+                    new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
+                    ffmpeg_added = True
+                elif 'hwaccel_args' not in config.get('ffmpeg', {}):
+                    if 'ffmpeg' not in new_config:
+                        new_config['ffmpeg'] = {}
+                    new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
+                    ffmpeg_added = True
+        
+        # If mqtt doesn't exist or ffmpeg wasn't added, add ffmpeg at the end
+        if not ffmpeg_added:
+            if 'ffmpeg' not in new_config:
+                new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
+            elif 'hwaccel_args' not in new_config.get('ffmpeg', {}):
+                new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
+        
+        # Write updated config
+        with open(config_path, 'w') as f:
+            yaml.dump(dict(new_config), f, default_flow_style=False, sort_keys=False)
+        
+        print(f"✅ FFmpeg hardware acceleration added to {config_path}")
+        return True  # Successfully updated
+        
+    except Exception as e:
+        print(f"⚠️  Could not auto-add FFmpeg config: {str(e)}")
+        return False
+
 # Register cleanup function to run on exit
 atexit.register(cleanup_all_threads)
 
@@ -3352,6 +3408,9 @@ class SimpleCameraGUI(QWidget):
                 # Try with sudo if permission denied
                 if not self.save_with_sudo(config_path, yaml_content):
                     return  # User cancelled or sudo failed
+            
+            # After saving config, add FFmpeg hardware acceleration if not present
+            update_config_with_ffmpeg(config_path)
             
             # Mark as saved and close the GUI
             self.has_unsaved_changes = False

@@ -37,7 +37,8 @@ try:
         ONVIFDiscoveryDialog,  # This is the correct class name
         SimpleCameraGUI,
         cleanup_all_threads,
-        _active_onvif_workers
+        _active_onvif_workers,
+        update_config_with_ffmpeg  # Import the FFmpeg config utility function
     )
     ONVIF_AVAILABLE = True
 except ImportError as e:
@@ -2539,10 +2540,10 @@ class ConfigGUI(QWidget):
             traceback.print_exc()
 
     def generate_manufacturer_rtsp_url(self, ip_address, manufacturer, username="admin", password="password"):
-        """Generate manufacturer-specific RTSP URL patterns - reusing from simple_camera_gui.py"""
+        """Generate manufacturer-specific RTSP URL patterns - reusing from camera_gui.py"""
         try:
-            # Try to import and use the method from simple_camera_gui.py
-            from simple_camera_gui import SimpleCameraGUI
+            # Try to import and use the method from camera_gui.py
+            from camera_gui import SimpleCameraGUI
             temp_gui = SimpleCameraGUI()
             return temp_gui.generate_manufacturer_rtsp_url(ip_address, manufacturer, username, password)
         except ImportError:
@@ -2869,6 +2870,9 @@ class ConfigGUI(QWidget):
             # Try with sudo if permission denied
             if not self.save_with_sudo(save_path, yaml_content):
                 return  # User cancelled or sudo failed
+        
+        # After saving config, add FFmpeg hardware acceleration if not present
+        update_config_with_ffmpeg(save_path)
 
         print(f"[SUCCESS] Config saved to {save_path}")
 

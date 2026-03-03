@@ -596,6 +596,26 @@ class PrerequisitesWidget(QWidget):
         memryx_buttons.addStretch()
         
         memryx_section_layout.addLayout(memryx_buttons)
+        
+        # Troubleshooting note (hidden by default, shown only when needed)
+        self.memryx_troubleshoot = QLabel(
+            "💡 <b>Tip:</b> If installation fails, try clicking <b>Check Installation</b> or retry the installation."
+        )
+        self.memryx_troubleshoot.setWordWrap(True)
+        self.memryx_troubleshoot.setStyleSheet(f"""
+            QLabel {{
+                color: {TEXT_SECONDARY};
+                font-size: 13px;
+                padding: 8px 12px;
+                background: #fef3c7;
+                border-left: 3px solid #fbbf24;
+                border-radius: 6px;
+                line-height: 1.5;
+            }}
+        """)
+        self.memryx_troubleshoot.setVisible(False)  # Hidden by default
+        memryx_section_layout.addWidget(self.memryx_troubleshoot)
+        
         layout.addWidget(memryx_section)
         
         # Elegant divider
@@ -660,30 +680,6 @@ class PrerequisitesWidget(QWidget):
         docker_status_container.addWidget(self.docker_status_label)
         docker_status_container.addStretch()
         docker_section_layout.addLayout(docker_status_container)
-        
-        # Docker Compose status container with left alignment
-        compose_status_container = QHBoxLayout()
-        compose_status_container.setContentsMargins(0, 0, 0, 0)
-        
-        # Docker Compose status - compact (green background fits text width)
-        self.docker_compose_status_label = QLabel("Docker Compose: ✅ Docker Compose version v5.0.0")
-        self.docker_compose_status_label.setWordWrap(False)
-        self.docker_compose_status_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        self.docker_compose_status_label.setStyleSheet(f"""
-            QLabel {{
-                color: {TEXT_PRIMARY};
-                font-size: 16px;
-                font-weight: 500;
-                padding: 12px 16px;
-                background: #f0fdf4;
-                border: 1px solid #86efac;
-                border-radius: 8px;
-                line-height: 1.4;
-            }}
-        """)
-        compose_status_container.addWidget(self.docker_compose_status_label)
-        compose_status_container.addStretch()
-        docker_section_layout.addLayout(compose_status_container)
         
         # Buttons - clean and spacious
         docker_buttons = QHBoxLayout()
@@ -990,6 +986,8 @@ class PrerequisitesWidget(QWidget):
                     """)
                     # Show the installed badge only when version is 2.1
                     self.memryx_installed_label.setVisible(True)
+                    # Hide troubleshooting note when correctly installed
+                    self.memryx_troubleshoot.setVisible(False)
                 
                 self.memryx_status_label.setText(status_text)
                 self.install_memryx_btn.setVisible(False)
@@ -1000,6 +998,8 @@ class PrerequisitesWidget(QWidget):
                     log_msg += version_info
                 if needs_update:
                     log_msg += " ⚠️ Version 2.1 required for Frigate compatibility"
+                    # Show troubleshooting note when update is needed
+                    self.memryx_troubleshoot.setVisible(True)
                 self.log_output.append(log_msg)
                 
                 # Re-enable button
@@ -1023,6 +1023,8 @@ class PrerequisitesWidget(QWidget):
                 self.install_memryx_btn.setVisible(True)
                 self.update_memryx_btn.setVisible(False)
                 self.memryx_installed_label.setVisible(False)  # Hide the badge when not installed
+                # Show troubleshooting note when not installed
+                self.memryx_troubleshoot.setVisible(True)
                 self.log_output.append("❌ MemryX SDK not detected - installation required")
                 
                 # Re-enable button
@@ -1034,6 +1036,8 @@ class PrerequisitesWidget(QWidget):
         except Exception as e:
             self.memryx_status_label.setText(f"Status: ❓ Check Failed: {str(e)}")
             self.log_output.append(f"⚠ Error checking MemryX status: {str(e)}")
+            # Hide troubleshooting note on error (keep it simple)
+            self.memryx_troubleshoot.setVisible(False)
             
             # Re-enable button
             self.check_memryx_btn.setEnabled(True)
@@ -1127,47 +1131,12 @@ class PrerequisitesWidget(QWidget):
             self.log_output.append("❌ Docker not installed")
             self.install_docker_btn.setVisible(True)
             
-        # Check Docker Compose
-        try:
-            result = subprocess.run(['docker', 'compose', 'version'], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                version = result.stdout.strip()
-                self.docker_compose_status_label.setText(f"Docker Compose: ✅ {version}")
-                self.docker_compose_status_label.setStyleSheet(f"""
-                    QLabel {{
-                        color: {SUCCESS_COLOR};
-                        font-size: 16px;
-                        font-weight: bold;
-                        padding: 8px;
-                        background: #c6f6d5;
-                        border-radius: 4px;
-                    }}
-                """)
-                self.log_output.append(f"✅ {version}")
-                compose_installed = True
-            else:
-                raise FileNotFoundError
-                
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            self.docker_compose_status_label.setText("Docker Compose: ❌ Not Installed")
-            self.docker_compose_status_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {ERROR_COLOR};
-                    font-size: 16px;
-                    font-weight: bold;
-                    padding: 8px;
-                    background: #fed7d7;
-                    border-radius: 4px;
-                }}
-            """)
-            self.log_output.append("❌ Docker Compose not installed")
-        
         # Re-enable button
         self.check_docker_btn.setEnabled(True)
         QApplication.processEvents()  # Force UI update
         
-        # Return True only if Docker is installed, daemon is running, AND Compose is installed
-        return docker_installed and docker_running and compose_installed
+        # Return True if Docker is installed and daemon is running
+        return docker_installed and docker_running
             
     def install_memryx(self):
         """Install MemryX SDK"""

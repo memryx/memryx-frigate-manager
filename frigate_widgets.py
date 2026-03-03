@@ -210,6 +210,29 @@ class StartFrigateWidget(QWidget):
         log_layout.addWidget(self.log_output)
         
         layout.addWidget(log_section)
+        
+        # ===== Troubleshooting Info =====
+        troubleshoot_note = QLabel(
+            "💡 <b>Troubleshooting:</b><br>"
+            "• To view detailed logs: <a href='http://localhost:5000/logs' style='color: #3b82f6;'>http://localhost:5000/logs</a><br>"
+            "• If Frigate isn't working or cameras not displaying, check the logs for errors"
+        )
+        troubleshoot_note.setWordWrap(True)
+        troubleshoot_note.setOpenExternalLinks(True)
+        troubleshoot_note.setTextFormat(Qt.RichText)
+        troubleshoot_note.setStyleSheet(f"""
+            QLabel {{
+                color: {TEXT_PRIMARY};
+                font-size: 14px;
+                padding: 12px 16px;
+                background: #fef3c7;
+                border: 1px solid #fbbf24;
+                border-radius: 8px;
+                line-height: 1.6;
+            }}
+        """)
+        layout.addWidget(troubleshoot_note)
+        
         layout.addStretch()
         
         # Initial status check
@@ -853,10 +876,6 @@ class ConfigureWidget(QWidget):
                 """)
                 self.ffmpeg_install_btn.setText("✓ VA-API Installed")
                 self.ffmpeg_install_btn.setEnabled(False)
-                
-                # Auto-update config if FFmpeg is installed
-                config_path = os.path.join(self.script_dir, "frigate", "config", "config.yaml")
-                self.update_config_with_ffmpeg(config_path)
             else:
                 self.ffmpeg_status_label.setText(f"Status: ⚠️ Missing {len(missing)} package(s)")
                 self.ffmpeg_status_label.setStyleSheet(f"""
@@ -883,56 +902,6 @@ class ConfigureWidget(QWidget):
                     margin-top: 5px;
                 }}
             """)
-    
-    def update_config_with_ffmpeg(self, config_path):
-        """Update config.yaml with FFmpeg hardware acceleration (if not already present)"""
-        try:
-            import yaml
-            from collections import OrderedDict
-            
-            # Check if config file exists
-            if not os.path.exists(config_path):
-                return  # Silently skip if no config
-            
-            # Read current config preserving order
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
-            
-            # Check if ffmpeg section already has hwaccel_args at top level
-            if 'ffmpeg' in config and isinstance(config['ffmpeg'], dict) and 'hwaccel_args' in config['ffmpeg']:
-                return
-            
-            # Create new ordered config with ffmpeg after mqtt
-            new_config = OrderedDict()
-            ffmpeg_added = False
-            
-            for key, value in config.items():
-                new_config[key] = value
-                
-                # After adding mqtt section, add ffmpeg (top-level)
-                if key == 'mqtt' and not ffmpeg_added:
-                    if 'ffmpeg' not in config:
-                        new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
-                        ffmpeg_added = True
-                    elif 'hwaccel_args' not in config.get('ffmpeg', {}):
-                        if 'ffmpeg' not in new_config:
-                            new_config['ffmpeg'] = {}
-                        new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
-                        ffmpeg_added = True
-            
-            # If mqtt doesn't exist or ffmpeg wasn't added, add ffmpeg at the end
-            if not ffmpeg_added:
-                if 'ffmpeg' not in new_config:
-                    new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
-                elif 'hwaccel_args' not in new_config.get('ffmpeg', {}):
-                    new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
-            
-            # Write updated config
-            with open(config_path, 'w') as f:
-                yaml.dump(dict(new_config), f, default_flow_style=False, sort_keys=False)
-            
-        except Exception as e:
-            pass  # Silently handle errors in auto-update
     
     def install_ffmpeg_packages(self):
         """Install FFmpeg VA-API hardware acceleration packages"""
