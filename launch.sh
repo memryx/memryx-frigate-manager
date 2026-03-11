@@ -60,6 +60,16 @@ pip install --quiet PySide6 PyYAML 2>/dev/null || {
 
 echo "✅ All packages ready"
 echo ""
+
+# Create config directory structure if it doesn't exist
+CONFIG_DIR="$SCRIPT_DIR/frigate/config"
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "📁 Creating Frigate config directory..."
+    mkdir -p "$CONFIG_DIR"
+    echo "✅ Config directory created at: $CONFIG_DIR"
+    echo ""
+fi
+
 # Launch the GUI application
 echo "🎮 Launching Frigate Control Panel..."
 python frigate_launcher.py

@@ -437,19 +437,19 @@ class WelcomeWidget(QWidget):
         
         # Feature list with modern styling
         description = QLabel(
-            "Complete setup wizard for your security system:\n\n"
-            "⚡ Install system prerequisites (MemryX SDK, Docker)\n"
-            "🎯 Download and configure Frigate NVR\n"
-            "📹 Set up cameras and detection objects \n"
-            "🚀 Launch and monitor your system in real-time\n\n"
-            "Follow each step below to complete your setup."
+            "Simple 3-step setup for your security system:<br><br>"
+            "1️⃣ <b>Get Started</b> - Install MemryX SDK & Docker<br>"
+            "2️⃣ <b>Start Frigate</b> - Pull official image & start container<br>"
+            "3️⃣ <b>Configure Cameras</b> - Add your cameras and start detecting!<br><br>"
+            "✨ Get started with MemryX Frigate - easy to setup and enjoy!"
         )
+        description.setTextFormat(Qt.RichText)
         description.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_SECONDARY};
                 font-size: 16px;
                 line-height: 2.0;
-                font-weight: 500;
+                font-weight: 400;
             }}
         """)
         description.setWordWrap(True)
@@ -596,6 +596,26 @@ class PrerequisitesWidget(QWidget):
         memryx_buttons.addStretch()
         
         memryx_section_layout.addLayout(memryx_buttons)
+        
+        # Troubleshooting note (hidden by default, shown only when needed)
+        self.memryx_troubleshoot = QLabel(
+            "💡 <b>Tip:</b> If installation fails, try clicking <b>Check Installation</b> or retry the installation."
+        )
+        self.memryx_troubleshoot.setWordWrap(True)
+        self.memryx_troubleshoot.setStyleSheet(f"""
+            QLabel {{
+                color: {TEXT_SECONDARY};
+                font-size: 13px;
+                padding: 8px 12px;
+                background: #fef3c7;
+                border-left: 3px solid #fbbf24;
+                border-radius: 6px;
+                line-height: 1.5;
+            }}
+        """)
+        self.memryx_troubleshoot.setVisible(False)  # Hidden by default
+        memryx_section_layout.addWidget(self.memryx_troubleshoot)
+        
         layout.addWidget(memryx_section)
         
         # Elegant divider
@@ -660,30 +680,6 @@ class PrerequisitesWidget(QWidget):
         docker_status_container.addWidget(self.docker_status_label)
         docker_status_container.addStretch()
         docker_section_layout.addLayout(docker_status_container)
-        
-        # Docker Compose status container with left alignment
-        compose_status_container = QHBoxLayout()
-        compose_status_container.setContentsMargins(0, 0, 0, 0)
-        
-        # Docker Compose status - compact (green background fits text width)
-        self.docker_compose_status_label = QLabel("Docker Compose: ✅ Docker Compose version v5.0.0")
-        self.docker_compose_status_label.setWordWrap(False)
-        self.docker_compose_status_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-        self.docker_compose_status_label.setStyleSheet(f"""
-            QLabel {{
-                color: {TEXT_PRIMARY};
-                font-size: 16px;
-                font-weight: 500;
-                padding: 12px 16px;
-                background: #f0fdf4;
-                border: 1px solid #86efac;
-                border-radius: 8px;
-                line-height: 1.4;
-            }}
-        """)
-        compose_status_container.addWidget(self.docker_compose_status_label)
-        compose_status_container.addStretch()
-        docker_section_layout.addLayout(compose_status_container)
         
         # Buttons - clean and spacious
         docker_buttons = QHBoxLayout()
@@ -990,6 +986,8 @@ class PrerequisitesWidget(QWidget):
                     """)
                     # Show the installed badge only when version is 2.1
                     self.memryx_installed_label.setVisible(True)
+                    # Hide troubleshooting note when correctly installed
+                    self.memryx_troubleshoot.setVisible(False)
                 
                 self.memryx_status_label.setText(status_text)
                 self.install_memryx_btn.setVisible(False)
@@ -1000,6 +998,8 @@ class PrerequisitesWidget(QWidget):
                     log_msg += version_info
                 if needs_update:
                     log_msg += " ⚠️ Version 2.1 required for Frigate compatibility"
+                    # Show troubleshooting note when update is needed
+                    self.memryx_troubleshoot.setVisible(True)
                 self.log_output.append(log_msg)
                 
                 # Re-enable button
@@ -1023,6 +1023,8 @@ class PrerequisitesWidget(QWidget):
                 self.install_memryx_btn.setVisible(True)
                 self.update_memryx_btn.setVisible(False)
                 self.memryx_installed_label.setVisible(False)  # Hide the badge when not installed
+                # Show troubleshooting note when not installed
+                self.memryx_troubleshoot.setVisible(True)
                 self.log_output.append("❌ MemryX SDK not detected - installation required")
                 
                 # Re-enable button
@@ -1034,6 +1036,8 @@ class PrerequisitesWidget(QWidget):
         except Exception as e:
             self.memryx_status_label.setText(f"Status: ❓ Check Failed: {str(e)}")
             self.log_output.append(f"⚠ Error checking MemryX status: {str(e)}")
+            # Hide troubleshooting note on error (keep it simple)
+            self.memryx_troubleshoot.setVisible(False)
             
             # Re-enable button
             self.check_memryx_btn.setEnabled(True)
@@ -1127,47 +1131,12 @@ class PrerequisitesWidget(QWidget):
             self.log_output.append("❌ Docker not installed")
             self.install_docker_btn.setVisible(True)
             
-        # Check Docker Compose
-        try:
-            result = subprocess.run(['docker', 'compose', 'version'], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                version = result.stdout.strip()
-                self.docker_compose_status_label.setText(f"Docker Compose: ✅ {version}")
-                self.docker_compose_status_label.setStyleSheet(f"""
-                    QLabel {{
-                        color: {SUCCESS_COLOR};
-                        font-size: 16px;
-                        font-weight: bold;
-                        padding: 8px;
-                        background: #c6f6d5;
-                        border-radius: 4px;
-                    }}
-                """)
-                self.log_output.append(f"✅ {version}")
-                compose_installed = True
-            else:
-                raise FileNotFoundError
-                
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            self.docker_compose_status_label.setText("Docker Compose: ❌ Not Installed")
-            self.docker_compose_status_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {ERROR_COLOR};
-                    font-size: 16px;
-                    font-weight: bold;
-                    padding: 8px;
-                    background: #fed7d7;
-                    border-radius: 4px;
-                }}
-            """)
-            self.log_output.append("❌ Docker Compose not installed")
-        
         # Re-enable button
         self.check_docker_btn.setEnabled(True)
         QApplication.processEvents()  # Force UI update
         
-        # Return True only if Docker is installed, daemon is running, AND Compose is installed
-        return docker_installed and docker_running and compose_installed
+        # Return True if Docker is installed and daemon is running
+        return docker_installed and docker_running
             
     def install_memryx(self):
         """Install MemryX SDK"""
@@ -2189,20 +2158,22 @@ class DockerWorker(QThread):
             return False
     
     def _build_image(self):
-        """Build the Frigate Docker image only (doesn't start container)"""
-        self.progress.emit("🔨 Building Frigate Docker image...")
-        frigate_path = os.path.join(self.script_dir, 'frigate')
+        """Pull the official Frigate Docker image with MemryX support"""
+        self.progress.emit("� Pulling official Frigate Docker image with MemryX support...")
+        self.progress.emit("ℹ️  Using: ghcr.io/blakeblackshear/frigate:stable")
         
-        if not os.path.exists(frigate_path):
-            raise Exception("Frigate repository not found. Please clone it first in Section 2.")
-        
+        # Pull the official image (stable version has MemryX support built-in)
         self._run_docker_command([
-            'docker', 'build', '-t', 'frigate', 
-            '-f', 'docker/main/Dockerfile', '.'
-        ], "Building Docker image:", cwd=frigate_path, capture_output=True)
+            'docker', 'pull', 'ghcr.io/blakeblackshear/frigate:stable'
+        ], "Pulling Docker image:", capture_output=True)
+        
+        # Tag it as 'frigate' for compatibility with existing code
+        self._run_docker_command([
+            'docker', 'tag', 'ghcr.io/blakeblackshear/frigate:stable', 'frigate'
+        ], "Tagging image:", capture_output=False)
         
         self.progress.emit("")  # Empty line for separation
-        self.progress.emit("✅ Frigate Docker image built successfully!")
+        self.progress.emit("✅ Frigate Docker image pulled successfully!")
         self.progress.emit("💡 You can now start the container using the Start button")
     
     def _start_frigate(self):
@@ -2219,19 +2190,24 @@ class DockerWorker(QThread):
         
         # Container doesn't exist, need to create it
         self.progress.emit("🚀 Creating and starting new Frigate container...")
+        self.progress.emit("📥 Using official image: ghcr.io/blakeblackshear/frigate:stable")
+        
         frigate_path = os.path.join(self.script_dir, 'frigate')
+        config_path = os.path.join(frigate_path, 'config')
         
-        if not os.path.exists(frigate_path):
-            raise Exception("Frigate repository not found. Please clone it first in Section 2.")
+        # Ensure config directory exists
+        if not os.path.exists(config_path):
+            self.progress.emit("📁 Creating config directory...")
+            os.makedirs(config_path, exist_ok=True)
         
-        # Create and start new container
+        # Create and start new container using official image
         self._run_docker_command([
             'docker', 'run', '-d',
             '--name', 'frigate',
             '--restart=unless-stopped',
             '--mount', 'type=tmpfs,target=/tmp/cache,tmpfs-size=1000000000',
             '--shm-size=256m',
-            '-v', f"{frigate_path}/config:/config",
+            '-v', f"{config_path}:/config",
             '-v', '/run/mxa_manager:/run/mxa_manager',
             '-e', 'FRIGATE_RTSP_PASSWORD=password',
             '--privileged=true',
@@ -2241,7 +2217,7 @@ class DockerWorker(QThread):
             '-p', '8555:8555/tcp',
             '-p', '8555:8555/udp',
             '--device', '/dev/memx0',
-            'frigate'
+            'ghcr.io/blakeblackshear/frigate:stable'
         ], "Creating container:", capture_output=False)
         
         self.progress.emit("")  # Empty line for separation
@@ -3940,7 +3916,7 @@ class FrigateLauncher(QMainWindow):
         
         # Import widgets
         from frigate_widgets import (
-            FrigateInstallWidget, ConfigureWidget, LaunchMonitorWidget
+            StartFrigateWidget, ConfigureWidget
         )
         
         # 1. Welcome Widget (always visible)
@@ -3960,23 +3936,21 @@ class FrigateLauncher(QMainWindow):
         self.section1.toggled.connect(lambda expanded: self.on_section_toggled(self.section1, expanded))
         content_layout.addWidget(self.section1)
         
-        # 3. Section 2: Install Frigate
+        # 3. Section 2: Start Frigate (NEW - Simplified)
         self.section2 = CollapsibleSection(
-            "2. Install Frigate",
-            "Clone and set up the Frigate NVR system"
+            "2. Start Frigate",
+            "Pull official image",
+            show_status=False
         )
-        self.frigate_install_widget = FrigateInstallWidget(self.script_dir, self)
-        self.frigate_install_widget.status_changed.connect(
-            lambda status: self.section2.set_status(status)
-        )
-        self.section2.set_content(self.frigate_install_widget)
+        self.start_frigate_widget = StartFrigateWidget(self.script_dir, self)
+        self.section2.set_content(self.start_frigate_widget)
         self.section2.toggled.connect(lambda expanded: self.on_section_toggled(self.section2, expanded))
         content_layout.addWidget(self.section2)
         
-        # 4. Section 3: Configure Frigate (no status indicator needed)
+        # 4. Section 3: Configure Cameras
         self.section3 = CollapsibleSection(
-            "3. Configure Frigate",
-            "Set up cameras and configure detection settings",
+            "3. Configure Cameras",
+            "Add and configure your cameras (requires Frigate to be started first)",
             show_status=False
         )
         self.configure_widget = ConfigureWidget(self.script_dir, self)
@@ -3984,19 +3958,8 @@ class FrigateLauncher(QMainWindow):
         self.section3.toggled.connect(lambda expanded: self.on_section_toggled(self.section3, expanded))
         content_layout.addWidget(self.section3)
         
-        # 5. Section 4: Launch & Monitor (no status indicator needed)
-        self.section4 = CollapsibleSection(
-            "4. Launch & Monitor",
-            "Start Frigate and monitor system status",
-            show_status=False
-        )
-        self.launch_monitor_widget = LaunchMonitorWidget(self.script_dir, self)
-        self.section4.set_content(self.launch_monitor_widget)
-        self.section4.toggled.connect(lambda expanded: self.on_section_toggled(self.section4, expanded))
-        content_layout.addWidget(self.section4)
-        
         # Store all sections for accordion behavior
-        self.all_sections = [self.section1, self.section2, self.section3, self.section4]
+        self.all_sections = [self.section1, self.section2, self.section3]
         
         # Store scroll area reference for auto-scrolling
         self.main_scroll_area = scroll_area
@@ -4665,14 +4628,14 @@ class FrigateLauncher(QMainWindow):
         keep_stop_enabled = action != 'stop'
         self.set_docker_buttons_enabled(False, keep_stop_enabled=keep_stop_enabled)
         
-        # Also disable Section 4 control buttons during operation
-        if hasattr(self, 'launch_monitor_widget'):
-            if hasattr(self.launch_monitor_widget, 'start_btn'):
-                self.launch_monitor_widget.start_btn.setEnabled(False)
-            if hasattr(self.launch_monitor_widget, 'stop_btn'):
-                self.launch_monitor_widget.stop_btn.setEnabled(keep_stop_enabled)
-            if hasattr(self.launch_monitor_widget, 'restart_btn'):
-                self.launch_monitor_widget.restart_btn.setEnabled(False)
+        # Also disable Section 2 control buttons during operation
+        if hasattr(self, 'start_frigate_widget'):
+            if hasattr(self.start_frigate_widget, 'start_btn'):
+                self.start_frigate_widget.start_btn.setEnabled(False)
+            if hasattr(self.start_frigate_widget, 'stop_btn'):
+                self.start_frigate_widget.stop_btn.setEnabled(keep_stop_enabled)
+            if hasattr(self.start_frigate_widget, 'restart_btn'):
+                self.start_frigate_widget.restart_btn.setEnabled(False)
         
         # Also disable PreConfigured Box buttons during operation
         if hasattr(self, 'preconfigured_start_btn'):
@@ -4705,14 +4668,14 @@ class FrigateLauncher(QMainWindow):
                     self.docker_progress.append("❌ Operation cancelled by user")
                 # RE-ENABLE BUTTONS IF USER CANCELS
                 self.set_docker_buttons_enabled(True)
-                # Re-enable Section 4 control buttons
-                if hasattr(self, 'launch_monitor_widget'):
-                    if hasattr(self.launch_monitor_widget, 'start_btn'):
-                        self.launch_monitor_widget.start_btn.setEnabled(True)
-                    if hasattr(self.launch_monitor_widget, 'stop_btn'):
-                        self.launch_monitor_widget.stop_btn.setEnabled(True)
-                    if hasattr(self.launch_monitor_widget, 'restart_btn'):
-                        self.launch_monitor_widget.restart_btn.setEnabled(True)
+                # Re-enable Section 2 control buttons
+                if hasattr(self, 'start_frigate_widget'):
+                    if hasattr(self.start_frigate_widget, 'start_btn'):
+                        self.start_frigate_widget.start_btn.setEnabled(True)
+                    if hasattr(self.start_frigate_widget, 'stop_btn'):
+                        self.start_frigate_widget.stop_btn.setEnabled(True)
+                    if hasattr(self.start_frigate_widget, 'restart_btn'):
+                        self.start_frigate_widget.restart_btn.setEnabled(True)
                 # Re-enable PreConfigured Box buttons
                 if hasattr(self, 'preconfigured_start_btn'):
                     self.preconfigured_start_btn.setEnabled(True)
@@ -4725,14 +4688,14 @@ class FrigateLauncher(QMainWindow):
                 # User confirmed - make sure buttons stay disabled
                 # Re-disable the buttons that might have been re-enabled by the dialog
                 self.set_docker_buttons_enabled(False, keep_stop_enabled=keep_stop_enabled)
-                # Re-disable Section 4 control buttons
-                if hasattr(self, 'launch_monitor_widget'):
-                    if hasattr(self.launch_monitor_widget, 'start_btn'):
-                        self.launch_monitor_widget.start_btn.setEnabled(False)
-                    if hasattr(self.launch_monitor_widget, 'stop_btn'):
-                        self.launch_monitor_widget.stop_btn.setEnabled(keep_stop_enabled)
-                    if hasattr(self.launch_monitor_widget, 'restart_btn'):
-                        self.launch_monitor_widget.restart_btn.setEnabled(False)
+                # Re-disable Section 2 control buttons
+                if hasattr(self, 'start_frigate_widget'):
+                    if hasattr(self.start_frigate_widget, 'start_btn'):
+                        self.start_frigate_widget.start_btn.setEnabled(False)
+                    if hasattr(self.start_frigate_widget, 'stop_btn'):
+                        self.start_frigate_widget.stop_btn.setEnabled(keep_stop_enabled)
+                    if hasattr(self.start_frigate_widget, 'restart_btn'):
+                        self.start_frigate_widget.restart_btn.setEnabled(False)
                 # Re-disable PreConfigured Box buttons
                 if hasattr(self, 'preconfigured_start_btn'):
                     self.preconfigured_start_btn.setEnabled(False)
@@ -5049,14 +5012,14 @@ class FrigateLauncher(QMainWindow):
         # RE-ENABLE ALL BUTTONS AFTER OPERATION COMPLETES
         self.set_docker_buttons_enabled(True)
         
-        # Re-enable Section 4 control buttons
-        if hasattr(self, 'launch_monitor_widget'):
-            if hasattr(self.launch_monitor_widget, 'start_btn'):
-                self.launch_monitor_widget.start_btn.setEnabled(True)
-            if hasattr(self.launch_monitor_widget, 'stop_btn'):
-                self.launch_monitor_widget.stop_btn.setEnabled(True)
-            if hasattr(self.launch_monitor_widget, 'restart_btn'):
-                self.launch_monitor_widget.restart_btn.setEnabled(True)
+        # Re-enable Section 2 control buttons
+        if hasattr(self, 'start_frigate_widget'):
+            if hasattr(self.start_frigate_widget, 'start_btn'):
+                self.start_frigate_widget.start_btn.setEnabled(True)
+            if hasattr(self.start_frigate_widget, 'stop_btn'):
+                self.start_frigate_widget.stop_btn.setEnabled(True)
+            if hasattr(self.start_frigate_widget, 'restart_btn'):
+                self.start_frigate_widget.restart_btn.setEnabled(True)
         
         # Re-enable PreConfigured Box buttons and update their states
         if hasattr(self, 'preconfigured_start_btn'):

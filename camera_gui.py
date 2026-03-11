@@ -26,6 +26,8 @@ import xml.etree.ElementTree as ET
 import urllib.request
 import urllib.parse
 import re
+import subprocess
+import tempfile
 
 # Global list to track all ONVIF worker threads for cleanup
 _active_onvif_workers = []
@@ -45,6 +47,62 @@ def cleanup_all_threads():
         except:
             pass
     _active_onvif_workers.clear()
+
+def update_config_with_ffmpeg(config_path):
+    """
+    Update config.yaml with FFmpeg hardware acceleration settings.
+    Returns True if config was updated, False if already present or error occurred.
+    """
+    try:
+        from collections import OrderedDict
+        
+        # Check if config file exists
+        if not os.path.exists(config_path):
+            return False  # Config doesn't exist
+        
+        # Read current config preserving order
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f) or {}
+        
+        # Check if ffmpeg section already has hwaccel_args at top level
+        if 'ffmpeg' in config and isinstance(config['ffmpeg'], dict) and 'hwaccel_args' in config['ffmpeg']:
+            return False  # Already present, no update needed
+        
+        # Create new ordered config with ffmpeg after mqtt
+        new_config = OrderedDict()
+        ffmpeg_added = False
+        
+        for key, value in config.items():
+            new_config[key] = value
+            
+            # After adding mqtt section, add ffmpeg (top-level)
+            if key == 'mqtt' and not ffmpeg_added:
+                if 'ffmpeg' not in config:
+                    new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
+                    ffmpeg_added = True
+                elif 'hwaccel_args' not in config.get('ffmpeg', {}):
+                    if 'ffmpeg' not in new_config:
+                        new_config['ffmpeg'] = {}
+                    new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
+                    ffmpeg_added = True
+        
+        # If mqtt doesn't exist or ffmpeg wasn't added, add ffmpeg at the end
+        if not ffmpeg_added:
+            if 'ffmpeg' not in new_config:
+                new_config['ffmpeg'] = {'hwaccel_args': 'preset-vaapi'}
+            elif 'hwaccel_args' not in new_config.get('ffmpeg', {}):
+                new_config['ffmpeg']['hwaccel_args'] = 'preset-vaapi'
+        
+        # Write updated config
+        with open(config_path, 'w') as f:
+            yaml.dump(dict(new_config), f, default_flow_style=False, sort_keys=False)
+        
+        print(f"✅ FFmpeg hardware acceleration added to {config_path}")
+        return True  # Successfully updated
+        
+    except Exception as e:
+        print(f"⚠️  Could not auto-add FFmpeg config: {str(e)}")
+        return False
 
 # Register cleanup function to run on exit
 atexit.register(cleanup_all_threads)
@@ -1105,6 +1163,80 @@ class SimpleCameraGUI(QWidget):
         btn_layout.addWidget(save_btn)
         
         layout.addLayout(btn_layout)
+
+    # ================================
+    # SUDO HELPER METHOD
+    # ================================
+    
+    def save_with_sudo(self, file_path, content):
+        """Save file using sudo when permission is denied
+        
+        Args:
+            file_path: Path to the file to save
+            content: String content to write
+            
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            # Import PasswordDialog from frigate_launcher
+            from frigate_launcher import PasswordDialog
+            
+            # Prompt for password
+            dialog = PasswordDialog(self, "saving configuration file")
+            if dialog.exec() != QDialog.Accepted:
+                return False  # User cancelled
+            
+            password = dialog.get_password()
+            if not password:
+                return False
+            
+            # Write to temporary file first
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.yaml', text=True)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    f.write(content)
+                
+                # Move with sudo
+                cmd = f"echo '{password}' | sudo -S mv '{temp_path}' '{file_path}'"
+                process = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                stdout, stderr = process.communicate()
+                
+                if process.returncode == 0:
+                    # Also fix permissions so user can edit it next time
+                    chmod_cmd = f"echo '{password}' | sudo -S chmod 666 '{file_path}'"
+                    subprocess.run(chmod_cmd, shell=True, capture_output=True, text=True)
+                    return True
+                else:
+                    error_msg = stderr.strip() if stderr else "Unknown error"
+                    QMessageBox.warning(
+                        self,
+                        "Permission Error",
+                        f"Failed to save configuration:\n{error_msg}\n\n"
+                        "Please check your sudo password and try again."
+                    )
+                    return False
+            finally:
+                # Clean up temp file if it still exists
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save with sudo: {str(e)}"
+            )
+            return False
 
     # ================================
     # INPUT VALIDATION METHODS
@@ -3269,8 +3401,16 @@ class SimpleCameraGUI(QWidget):
             yaml_content = yaml.dump(ordered_config, Dumper=MyDumper, default_flow_style=False, sort_keys=False)
             yaml_content = MyDumper.add_camera_spacing(yaml_content)
             
-            with open(config_path, 'w') as f:
-                f.write(yaml_content)
+            try:
+                with open(config_path, 'w') as f:
+                    f.write(yaml_content)
+            except PermissionError:
+                # Try with sudo if permission denied
+                if not self.save_with_sudo(config_path, yaml_content):
+                    return  # User cancelled or sudo failed
+            
+            # After saving config, add FFmpeg hardware acceleration if not present
+            update_config_with_ffmpeg(config_path)
             
             # Mark as saved and close the GUI
             self.has_unsaved_changes = False
